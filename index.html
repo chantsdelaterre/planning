@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning · Chants de la Terre</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/planning.css">
+</head>
+<body>
+<header class="barre">
+  <div class="marque">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
+    <span>Planning · Chants de la Terre</span>
+  </div>
+  <nav aria-label="Vues" class="onglets">
+    <a href="#" class="onglet actif" aria-current="page">Général</a>
+    <span class="onglet bientot" title="Lot 4">Par personne</span>
+    <span class="onglet bientot" title="Lot 4">Par activité</span>
+    <span class="onglet bientot" title="Lot 5">Récapitulatifs</span>
+  </nav>
+  <div class="qui" id="qui"></div>
+</header>
+
+<div id="bandeau-demo" class="bandeau-demo" hidden>Mode démonstration : données fictives, rien n'est enregistré.</div>
+<div id="message" class="message" role="status" aria-live="polite" hidden></div>
+
+<main id="app" hidden>
+  <div class="outils">
+    <div class="semaine-nav">
+      <button class="icone" id="prec" aria-label="Semaine précédente"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="semaine-titre"><div id="titre-semaine" class="titre"></div><div id="dates-semaine" class="sous"></div></div>
+      <button class="icone" id="suiv" aria-label="Semaine suivante"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+      <button class="bouton" id="auj">Cette semaine</button>
+    </div>
+    <div class="actions">
+      <label class="case"><input type="checkbox" id="dimanche"> Dimanche</label>
+      <button class="bouton" id="btn-selection" aria-expanded="false">Sélection</button>
+      <button class="bouton" id="btn-fermer" hidden>Fermer une journée</button>
+      <button class="bouton" id="btn-imprimer">Imprimer</button>
+      <button class="bouton principal" id="btn-nouvelle" hidden>+ Nouvelle séance</button>
+    </div>
+  </div>
+
+  <section id="panneau-selection" class="panneau-selection" hidden aria-label="Sélection">
+    <div class="selection-entete">
+      <strong>Sélection</strong>
+      <span class="sous">Coche ce que le planning et les totaux doivent montrer.</span>
+      <button class="lien" id="sel-tout">Tout</button>
+      <button class="lien" id="sel-rien">Rien</button>
+    </div>
+    <div class="selection-colonnes">
+      <div><div class="sel-titre">Activités, ateliers, tâches</div><div id="arbre"></div></div>
+      <div><div class="sel-titre">Regroupements</div><div id="regroupements"></div></div>
+    </div>
+  </section>
+
+  <div class="legende" id="legende"></div>
+
+  <div class="corps">
+    <div class="grille-cadre" id="grille-cadre">
+      <div class="grille" id="grille"></div>
+    </div>
+    <aside class="cote">
+      <section class="carte" id="carte-personnes" aria-label="Personnes">
+        <div class="carte-entete"><h2>Personnes</h2><span class="sous">prévu / contrat</span></div>
+        <p class="aide" id="aide-glisser">Glisse un nom sur une séance pour l'affecter.</p>
+        <input type="search" id="recherche" placeholder="Rechercher…" aria-label="Rechercher une personne">
+        <label class="case petite"><input type="checkbox" id="filtre-habituels"> Seulement les ateliers sélectionnés</label>
+        <div id="personnes" class="personnes"></div>
+      </section>
+      <section class="carte" id="detail" hidden aria-label="Séance sélectionnée"></section>
+    </aside>
+  </div>
+</main>
+
+<dialog id="dlg-seance" class="dialogue">
+  <form method="dialog" id="form-seance">
+    <h2 id="dlg-seance-titre">Nouvelle séance</h2>
+    <label>Tâche<select id="f-tache" required></select></label>
+    <div class="ligne3">
+      <label>Date<input type="date" id="f-date" required></label>
+      <label>Début<input type="time" id="f-debut" step="900" required></label>
+      <label>Fin<input type="time" id="f-fin" step="900" required></label>
+    </div>
+    <div class="ligne2">
+      <label>Titre (facultatif)<input type="text" id="f-titre" placeholder="sinon le nom de la tâche"></label>
+      <label>Lieu (facultatif)<input type="text" id="f-lieu"></label>
+    </div>
+    <fieldset class="repetition">
+      <legend><label class="case"><input type="checkbox" id="f-recurrente"> Répéter chaque semaine</label></legend>
+      <div id="f-recurrence" hidden>
+        <div class="jours" id="f-jours"></div>
+        <label>Jusqu'au (facultatif)<input type="date" id="f-date-fin"></label>
+      </div>
+    </fieldset>
+    <label>Personnes<select id="f-personnes" multiple size="6"></select></label>
+    <p class="sous">Ctrl ou Cmd + clic pour en choisir plusieurs. On peut aussi les glisser ensuite sur la séance.</p>
+    <div class="pied">
+      <button value="annuler" class="bouton" formnovalidate>Annuler</button>
+      <button value="ok" class="bouton principal" id="f-valider">Créer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-portee" class="dialogue petit">
+  <form method="dialog">
+    <h2>Appliquer la modification à…</h2>
+    <p id="portee-resume" class="sous"></p>
+    <div class="choix">
+      <button value="seance" class="bouton large">Cette séance seulement</button>
+      <button value="suivantes" class="bouton large">Cette séance et les suivantes de la série</button>
+    </div>
+    <div class="pied"><button value="annuler" class="bouton">Annuler</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-fermer" class="dialogue petit">
+  <form method="dialog" id="form-fermer">
+    <h2>Fermer une journée</h2>
+    <p class="sous">Toutes les séances prévues ce jour-là sont suspendues et ne comptent plus.</p>
+    <label>Date<input type="date" id="fj-date" required></label>
+    <label>Société<select id="fj-societe"><option value="">Toute l'entreprise</option></select></label>
+    <label>Motif (facultatif)<input type="text" id="fj-motif" placeholder="Férié, fermeture…"></label>
+    <div class="pied">
+      <button value="annuler" class="bouton" formnovalidate>Annuler</button>
+      <button value="ok" class="bouton principal">Fermer la journée</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="js/api.js"></script>
+<script src="js/demo.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
