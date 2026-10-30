@@ -577,7 +577,7 @@
     const ri = $('#f-rep-info'); ri.hidden = !enSerie;
     ri.textContent = 'Changer le rythme, les jours ou la fin s\'applique à cette séance et aux suivantes. Pour arrêter la série : « Arrêter la série ici ».';
     const j = $('#f-jours'); j.replaceChildren();
-    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: enSerie ? modele.serie_jours.includes(i + 1) : i + 1 === D.jourIso(date) }), n)));
+    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: enSerie ? modele.serie_jours.includes(i + 1) : false }), n)));
     const fp = $('#f-personnes'); fp.replaceChildren();
     const reprises = new Set(modele ? modele.personnes.map((p) => p.personne_id) : []);
     const compter = () => { const n = personnesCochees().length; $('#f-nb-pers').textContent = n ? '(' + n + ')' : ''; };
