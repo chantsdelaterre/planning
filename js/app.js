@@ -221,7 +221,9 @@
   // Heures comptées pour une séance dans la vue : celles de la personne, ou la main-d'œuvre.
   const heuresVue = (s) => etat.vue === 'personne' ? (s.statut === 'prevue' ? s.duree_h : 0) : s.main_oeuvre_h;
   const personneCourante = () => etat.sem && etat.sem.personnes.find((p) => p.id === etat.personne);
-  const joursAffiches = () => (etat.dimanche ? 7 : 6);
+  // Le dimanche s'affiche si la case est cochée, ou d'office dès qu'une séance visible tombe ce jour-là.
+  const dimancheOccupe = () => !!etat.sem && etat.sem.seances.some((s) => visible(s) && (s.date_seance === D.ajout(etat.lundi, 6) || s.date_serie === D.ajout(etat.lundi, 6)));
+  const joursAffiches = () => (etat.dimanche || dimancheOccupe() ? 7 : 6);
 
   function bornes(seances) {
     let a = 6 * 60, b = 19 * 60;
