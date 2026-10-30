@@ -258,7 +258,8 @@ begin
   if jsonb_array_length(r->'seances'->0->'personnes') <> 2 then raise exception 'ÉCHEC : personnes de la séance'; end if;
   if not exists (select 1 from jsonb_array_elements(r->'seances'->0->'personnes') e where (e->>'personne_id')::bigint = chloe and (e->>'mad')::boolean) then
     raise exception 'ÉCHEC : màd non visible'; end if;
-  if jsonb_array_length(r->'personnes') < 5 then raise exception 'ÉCHEC : panneau des personnes'; end if;
+  -- Le panneau complet des personnes : pour la consultation ; un collaborateur ne voit que les noms utiles.
+  if jsonb_array_length(public.planning_appel(pauline, 'semaine', jsonb_build_object('lundi', lundi))->'personnes') < 5 then raise exception 'ÉCHEC : panneau des personnes'; end if;
 
   -- L'admin ajoute une séance Paniers le samedi 9 h avec Yann : chevauchement signalé.
   r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t_paniers, 'date', lundi + 5, 'debut', '09:00', 'fin', '10:00'));
@@ -608,3 +609,46 @@ begin
   delete from public.jours; delete from planning.acces_admin;
 end $$;
 select 'Vérification 20 : réussie';
+
+-- 21. Accès en lecture (option b) : ses séances + ateliers habituels/responsable + ce que l'admin ouvre.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; chloe bigint; anna bigint; me jsonb; tx bigint; ty bigint; atx bigint; aty bigint;
+        lundi date := date_trunc('week', current_date)::date + 7; r jsonb; n int;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select t.id, t.atelier_id into tx, atx from planning.tache t order by t.id limit 1;
+  select t.id, t.atelier_id into ty, aty from planning.tache t where t.atelier_id <> atx order by t.id limit 1;
+  insert into planning.personne_atelier values (chloe, atx);
+  me := jsonb_build_object('type', 'collab', 'personne_id', chloe);
+  set local role service_role;
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', tx, 'date', lundi, 'debut', '08:00', 'fin', '09:00', 'personnes', jsonb_build_array(anna)));
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', ty, 'date', lundi, 'debut', '10:00', 'fin', '11:00', 'personnes', jsonb_build_array(anna)));
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', ty, 'date', lundi + 1, 'debut', '10:00', 'fin', '11:00', 'personnes', jsonb_build_array(chloe)));
+  r := public.planning_appel(me, 'semaine', jsonb_build_object('lundi', lundi));
+  n := jsonb_array_length(r->'seances');
+  if n <> 2 then raise exception 'ÉCHEC : le collaborateur voit % séances au lieu de 2 (atelier habituel + la sienne)', n; end if;
+  if exists (select 1 from jsonb_array_elements(r->'personnes') p where (p->>'id')::bigint <> chloe and jsonb_array_length(p->'fiches') > 0) then
+    raise exception 'ÉCHEC : contrat d''un autre visible'; end if;
+  if jsonb_array_length(public.planning_appel(me, 'session', '{}')->'referentiel'->'taches') <> (select count(*) from planning.tache where atelier_id = atx and archive_le is null) then
+    raise exception 'ÉCHEC : référentiel non réduit'; end if;
+  -- L'admin ouvre l'autre atelier : 3 séances.
+  perform public.planning_appel(adm, 'acces_regler', jsonb_build_object('personne_id', chloe, 'tout', false, 'elements', jsonb_build_array(jsonb_build_array('atelier', aty))));
+  if jsonb_array_length(public.planning_appel(me, 'semaine', jsonb_build_object('lundi', lundi))->'seances') <> 3 then raise exception 'ÉCHEC : élément ouvert non pris en compte'; end if;
+  perform public.planning_appel(adm, 'acces_regler', jsonb_build_object('personne_id', chloe, 'tout', true));
+  if (public.planning_appel(adm, 'admin_lire', '{}')->'acces_tout') <> jsonb_build_array(chloe) then raise exception 'ÉCHEC : lecture des accès'; end if;
+  -- Responsable : ne lit le réalisé que des personnes de ses ateliers.
+  insert into planning.atelier_responsable values (atx, chloe);
+  perform public.planning_appel(me, 'realise', jsonb_build_object('personne_id', anna, 'lundi', lundi));
+  begin
+    perform public.planning_appel(jsonb_build_object('type', 'collab', 'personne_id', anna), 'realise', jsonb_build_object('personne_id', chloe, 'lundi', lundi));
+    raise exception 'ÉCHEC : réalisé d''un autre lisible';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  r := public.planning_appel(me, 'recap', jsonb_build_object('debut', lundi, 'fin', lundi + 6));
+  if exists (select 1 from jsonb_array_elements(r->'personnes') p where (p->>0)::bigint not in (chloe, anna)) then raise exception 'ÉCHEC : récap du responsable trop large'; end if;
+  reset role;
+  delete from planning.seance; delete from planning.journal; delete from planning.acces_admin; delete from planning.personne_atelier;
+  delete from planning.atelier_responsable; delete from planning.acces_personne; delete from planning.acces_element;
+end $$;
+select 'Vérification 21 : réussie';

@@ -212,10 +212,12 @@
     const x = liste.find((o) => o.id === id); return x ? x.nom : '';
   };
   const ecartJour = (x) => Math.abs(x) < 0.125 ? el('span', { class: 'ecart-nul' }, '= ') : el('span', { class: x > 0 ? 'ecart-plus' : 'ecart-moins' }, (x > 0 ? '+' : '−') + heures(Math.abs(x)));
+  // Une séance à moi sur une tâche que je ne vois pas autrement : toujours affichée.
+  const estAMoiHorsReferentiel = (s) => !!(etat.droits && etat.droits.personne_id) && !etat.ref.taches.some((t) => t.id === s.tache_id) && avecPersonne(s, etat.droits.personne_id);
   const avecPersonne = (s, pid) => s.personnes.some((p) => p.personne_id === pid);
   const visible = (s) => etat.vue === 'personne' ? avecPersonne(s, etat.personne)
     : etat.vue === 'activite' ? tachesCible().includes(s.tache_id)
-    : etat.selection.has(s.tache_id);
+    : etat.selection.has(s.tache_id) || estAMoiHorsReferentiel(s);
   // Heures comptées pour une séance dans la vue : celles de la personne, ou la main-d'œuvre.
   const heuresVue = (s) => etat.vue === 'personne' ? (s.statut === 'prevue' ? s.duree_h : 0) : s.main_oeuvre_h;
   const personneCourante = () => etat.sem && etat.sem.personnes.find((p) => p.id === etat.personne);
@@ -904,20 +906,66 @@
       ...ateliers.map((at) => el('th', { class: 'at' }, el('span', { class: 'pastille', style: 'background:' + at.couleur }), ' ', at.nom)))), tb));
   }
 
+  function adminAcces(z) {
+    const d = A.donnees;
+    const q = A.q.trim().toLowerCase();
+    const gens = d.personnes.filter((p) => p.active && (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q)));
+    const nomEl = (type, id) => { const l = { activite: d.activites, atelier: d.ateliers, regroupement: d.regroupements, tache: d.taches }[type]; const x = l.find((y) => y.id === id); return x ? x.nom : '?'; };
+    const tb = el('tbody');
+    for (const p of gens) {
+      const hab = d.habituels.filter((h) => h[0] === p.id).map((h) => h[1]);
+      const resp = d.responsables.filter((r) => r[1] === p.id).map((r) => r[0]);
+      const defaut = [...new Set(hab.concat(resp))].map((id) => nomEl('atelier', id) + (resp.includes(id) ? ' (resp.)' : ''));
+      const tout = (d.acces_tout || []).includes(p.id);
+      const plus = (d.acces_elements || []).filter((e) => e[0] === p.id).map((e) => nomEl(e[1], e[2]));
+      tb.append(el('tr', {},
+        el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, (p.societes || []).join(' + '))),
+        el('td', { class: 'acces-defaut' }, defaut.length ? defaut.join(', ') : el('span', { class: 'sous' }, 'ses séances seulement')),
+        el('td', { class: 'acces-defaut' }, tout ? el('strong', {}, 'Tout le planning') : plus.length ? plus.join(', ') : '—'),
+        el('td', {}, lectureSeule() ? null : el('button', { type: 'button', class: 'bouton mini', onclick: () => ouvrirAcces(p) }, 'Modifier'))));
+    }
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Voit d\'office (ateliers habituels, responsable)'), el('th', {}, 'Ouvert en plus'), el('th', {}, ''))), tb));
+  }
+  let accesEdite = null;
+  function ouvrirAcces(p) {
+    accesEdite = p;
+    const d = A.donnees;
+    $('#dlg-acces-titre').textContent = 'Accès de ' + p.prenom + ' ' + p.nom;
+    const elts = new Set((d.acces_elements || []).filter((e) => e[0] === p.id).map((e) => e[1] + ':' + e[2]));
+    const tout = $('#fa-tout'); tout.checked = (d.acces_tout || []).includes(p.id);
+    const arbre = $('#fa-arbre'); arbre.replaceChildren();
+    const caseA = (type, id, nom) => el('label', {}, el('input', { type: 'checkbox', value: type + ':' + id, checked: elts.has(type + ':' + id) }), nom);
+    const ateliers = d.ateliers.filter((a) => !a.archive);
+    arbre.append(el('div', { class: 'sel-carte' }, el('label', {}, 'Activités entières'), el('div', { class: 'sel-taches' }, ...d.activites.filter((a) => !a.archive).map((a) => caseA('activite', a.id, a.nom)))));
+    arbre.append(el('div', { class: 'sel-carte' }, el('label', {}, 'Regroupements'), el('div', { class: 'sel-taches' }, ...d.regroupements.filter((a) => !a.archive).map((a) => caseA('regroupement', a.id, a.nom)))));
+    for (const at of ateliers) {
+      arbre.append(el('div', { class: 'sel-carte', style: '--c:' + at.couleur }, caseA('atelier', at.id, at.nom),
+        el('div', { class: 'sel-taches' }, ...d.taches.filter((t) => t.atelier_id === at.id && !t.archive).map((t) => caseA('tache', t.id, t.nom)))));
+    }
+    const griser = () => arbre.classList.toggle('grise', tout.checked);
+    tout.onchange = griser; griser();
+    $('#dlg-acces').showModal();
+  }
+  function validerAcces() {
+    const elements = [...$('#fa-arbre').querySelectorAll('input:checked')].map((c) => { const [t, i] = c.value.split(':'); return [t, +i]; });
+    adminAgir('acces_regler', { personne_id: accesEdite.id, tout: $('#fa-tout').checked, elements }, 'Accès de ' + accesEdite.prenom + ' enregistrés.');
+  }
+
   const AIDES = {
     referentiel: 'Un nom se modifie en cliquant dessus (Entrée pour valider). Ce qui a servi s\'archive au lieu de se supprimer : l\'historique reste intact. Changer la société d\'un atelier ne touche que les séances créées ensuite.',
     responsables: 'Un responsable crée et modifie les séances de ses ateliers, avec son propre lien de Suivi des temps.',
     personnes: 'Quand la fiche d\'une personne à venir est créée dans Suivi des temps, rattache-la ici : toutes ses séances passent sur sa fiche.',
+    acces: 'Chaque collaborateur ou responsable voit toujours ses propres séances, plus les ateliers dont il est habituel ou responsable. Ouvre-lui ici d\'autres activités, ateliers, tâches ou regroupements, ou tout le planning. Accès complets et consultation voient tout.',
     habituels: 'Les ateliers habituels d\'une personne la font apparaître dans le volet « Personnes » quand ces ateliers sont sélectionnés. Ce n\'est pas une restriction.',
   };
   function dessinerAdmin() {
     for (const b of document.querySelectorAll('[data-admin]')) b.classList.toggle('actif', b.dataset.admin === A.rubrique);
     $('#a-aide').textContent = AIDES[A.rubrique];
     $('#a-archives-l').hidden = !['referentiel', 'personnes'].includes(A.rubrique);
-    $('#a-recherche').hidden = !['personnes', 'habituels'].includes(A.rubrique);
+    $('#a-recherche').hidden = !['personnes', 'habituels', 'acces'].includes(A.rubrique);
     const z = $('#a-contenu'); z.replaceChildren();
     if (!A.donnees) { z.append(el('p', { class: 'vide' }, 'Chargement…')); rechargerAdmin(); return; }
-    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels })[A.rubrique](z);
+    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels, acces: adminAcces })[A.rubrique](z);
   }
 
   // Personne sans fiche : création (volet ou administration) et renommage.
@@ -942,6 +990,7 @@
     $('#a-archives').onchange = (e) => { A.archives = e.target.checked; dessinerAdmin(); };
     $('#a-recherche').oninput = (e) => { A.q = e.target.value; dessinerAdmin(); };
     $('#btn-personne').onclick = () => ouvrirPersonne();
+    $('#dlg-acces').addEventListener('close', () => { if ($('#dlg-acces').returnValue === 'ok') validerAcces(); });
     $('#dlg-personne').addEventListener('close', () => { if ($('#dlg-personne').returnValue === 'ok') validerPersonne(); });
   }
 

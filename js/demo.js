@@ -57,6 +57,16 @@
   const fermes = [];
   const series = [];
   const responsables = [[1, 4]];  // David Modèle responsable de Paniers
+  const accesTout = [], accesElements = [];
+  // Tâches visibles (null = toutes), comme dans la base.
+  function tachesVisibles() {
+    if (['complet', 'consultation'].includes(droits.niveau)) return null;
+    const pid = droits.personne_id; if (accesTout.includes(pid)) return null;
+    const ats = new Set(pers(pid).ateliers_habituels.concat(responsables.filter((r) => r[1] === pid).map((r) => r[0])));
+    const el = accesElements.filter((e) => e[0] === pid);
+    return R.taches.filter((t) => ats.has(t.atelier_id) || el.some(([, ty, id]) => (ty === 'tache' && id === t.id) || (ty === 'atelier' && id === t.atelier_id)
+      || (ty === 'regroupement' && id === t.regroupement_id) || (ty === 'activite' && id === atelier(t.atelier_id).activite_id))).map((t) => t.id);
+  }
 
   const tache = (id) => R.taches.find((t) => t.id === id);
   const atelier = (id) => R.ateliers.find((a) => a.id === id);
@@ -145,12 +155,18 @@
   const seance = (id) => { const s = S.find((x) => x.id === +id); if (!s) throw new Error('Séance introuvable'); return s; };
 
   const actions = {
-    session: () => ({ droits, referentiel: {
-      activites: R.activites.filter((a) => !a.archive), ateliers: R.ateliers.filter((a) => !a.archive),
-      regroupements: R.regroupements.filter((a) => !a.archive), taches: R.taches.filter((a) => !a.archive) } }),
+    session: () => {
+      const v = tachesVisibles();
+      const taches = R.taches.filter((a) => !a.archive && (!v || v.includes(a.id)));
+      const ateliers = R.ateliers.filter((a) => !a.archive && taches.some((t) => t.atelier_id === a.id));
+      return { droits, referentiel: { taches, ateliers, activites: R.activites.filter((a) => !a.archive && ateliers.some((x) => x.activite_id === a.id)),
+        regroupements: R.regroupements.filter((a) => !a.archive && taches.some((t) => t.regroupement_id === a.id)) } };
+    },
     semaine: (q) => {
       const d0 = q.lundi || lundi0; const d6 = ajout(d0, 6);
+      const v = tachesVisibles(), moi = droits.personne_id;
       const liste = S.filter((s) => (s.date_seance >= d0 && s.date_seance <= d6) || (s.serie_id && s.date_serie !== s.date_seance && s.date_serie >= d0 && s.date_serie <= d6))
+        .filter((s) => !v || v.includes(s.tache_id) || s.personnes.some((x) => x.personne_id === moi))
         .map((s) => vue(s, d0, d6)).sort((a, b) => (a.date_seance + a.heure_debut).localeCompare(b.date_seance + b.heure_debut));
       const prevu = {};
       liste.filter((v) => !v.trace && v.statut === 'prevue').forEach((v) => v.personnes.forEach((x) => { prevu[x.personne_id] = (prevu[x.personne_id] || 0) + v.duree_h; }));
@@ -158,7 +174,9 @@
         lundi: d0, seances: liste,
         jours_fermes: fermes.filter((f) => f.date >= d0 && f.date <= d6),
         indisponibilites: [], chevauchements: [],
-        personnes: P.filter((x) => !x.archive).map((x) => Object.assign({}, x, { prevu_h: prevu[x.id] || 0, nature: x.externe ? x.nature || 'externe' : null })),
+        personnes: P.filter((x) => !x.archive).map((x) => Object.assign({}, x, { prevu_h: prevu[x.id] || 0, nature: x.externe ? x.nature || 'externe' : null }))
+          .filter((x) => droits.niveau !== 'collaborateur' || x.id === moi || liste.some((s) => s.personnes.some((y) => y.personne_id === x.id)))
+          .map((x) => droits.niveau !== 'collaborateur' || x.id === moi ? x : Object.assign({}, x, { fiches: [], prevu_h: 0, ateliers_habituels: [] })),
       };
     },
     seance_creer: (q) => { exiger(tache(+q.tache_id).atelier_id); const s = nouvelleSeance({ tache_id: +q.tache_id, date_seance: q.date, heure_debut: h(q.debut), heure_fin: h(q.fin), titre: q.titre || null, lieu: q.lieu || null, personnes: (q.personnes || []).map(Number) }); return { seance_id: s.id }; },
@@ -225,7 +243,7 @@
         regroupements: R.regroupements.map((a) => Object.assign({ ordre: 0, archive: !!a.archive }, a)),
         taches: R.taches.map((t) => Object.assign({ ordre: 0, archive: !!t.archive, seances: S.filter((x) => x.tache_id === t.id).length }, t)),
         societes: [{ code: 'SAS', nom: 'SAS (fictive)' }, { code: 'SARL', nom: 'SARL (fictive)' }, { code: 'SCEA', nom: 'SCEA (fictive)' }],
-        responsables: responsables.slice(), habituels: P.flatMap((x) => x.ateliers_habituels.map((a) => [x.id, a])),
+        acces_tout: accesTout.slice(), acces_elements: accesElements.slice(), responsables: responsables.slice(), habituels: P.flatMap((x) => x.ateliers_habituels.map((a) => [x.id, a])),
         personnes: P.map((x) => ({ id: x.id, prenom: x.prenom, nom: x.nom, sans_fiche: x.externe, active: !x.externe, societes: x.fiches.map((f) => f.societe),
           nature: x.externe ? x.nature || 'externe' : null, archive: !!x.archive, seances: S.filter((s) => s.personnes.some((y) => y.personne_id === x.id)).length,
           suggestions: x.externe ? P.filter((y) => !y.externe && y.id !== x.id && ((sa(x.nom) && sa(y.nom) === sa(x.nom)) || sa(y.prenom) === sa(x.prenom))).map((y) => y.id) : null })),
@@ -270,6 +288,10 @@
     responsable: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
       const k = responsables.findIndex((r) => r[0] === +q.atelier_id && r[1] === +q.personne_id);
       if (q.ajouter === false) { if (k >= 0) responsables.splice(k, 1); } else if (k < 0) responsables.push([+q.atelier_id, +q.personne_id]); return {}; },
+    acces_regler: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
+      const pid = +q.personne_id; const i = accesTout.indexOf(pid); if (q.tout && i < 0) accesTout.push(pid); if (!q.tout && i >= 0) accesTout.splice(i, 1);
+      if (q.elements) { for (let k = accesElements.length - 1; k >= 0; k--) if (accesElements[k][0] === pid) accesElements.splice(k, 1); q.elements.forEach(([t, id]) => accesElements.push([pid, t, +id])); }
+      return {}; },
     habituel: (q) => { exiger(+q.atelier_id); const x = pers(+q.personne_id);
       x.ateliers_habituels = q.ajouter === false ? x.ateliers_habituels.filter((a) => a !== +q.atelier_id) : [...new Set(x.ateliers_habituels.concat(+q.atelier_id))]; return {}; },
     // Créneaux réalisés fictifs : les séances passées, avec quelques minutes d'écart, et des CP.

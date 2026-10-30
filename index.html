@@ -93,6 +93,7 @@
         <button type="button" class="segment" data-admin="responsables">Responsables</button>
         <button type="button" class="segment" data-admin="personnes">Personnes sans fiche</button>
         <button type="button" class="segment" data-admin="habituels">Ateliers habituels</button>
+        <button type="button" class="segment" data-admin="acces">Accès</button>
       </div>
       <label class="case" id="a-archives-l"><input type="checkbox" id="a-archives"> Afficher les éléments archivés</label>
       <input type="search" id="a-recherche" placeholder="Rechercher une personne" aria-label="Rechercher une personne">
@@ -169,6 +170,19 @@
     <div class="pied">
       <button value="annuler" class="bouton" formnovalidate>Annuler</button>
       <button value="ok" class="bouton principal" id="fp-valider">Créer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-acces" class="dialogue">
+  <form method="dialog">
+    <h2 id="dlg-acces-titre">Accès</h2>
+    <p class="sous">Ce que cette personne voit <strong>en plus</strong> de ses propres séances et de ses ateliers habituels ou de responsable.</p>
+    <label class="case"><input type="checkbox" id="fa-tout"> Tout le planning</label>
+    <div id="fa-arbre" class="sel-ateliers"></div>
+    <div class="pied">
+      <button value="annuler" class="bouton" formnovalidate>Annuler</button>
+      <button value="ok" class="bouton principal">Enregistrer</button>
     </div>
   </form>
 </dialog>
