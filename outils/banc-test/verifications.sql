@@ -201,4 +201,102 @@ begin
   delete from planning.indisponibilite; delete from planning.seance; delete from planning.serie; delete from planning.jour_ferme;
   delete from public.personne where personne_id = ext;
 end $$;
+-- Porte d'entrée et API (0008, 0009), par la vraie porte, avec le rôle des Edge Functions.
+do $$
+declare
+  adm jsonb := '{"type":"admin","admin_id":"admin_test1"}';
+  pauline jsonb := '{"type":"admin","admin_id":"admin_test2"}';
+  resp jsonb; collab jsonb; r jsonb; t_appro bigint; t_paniers bigint; lundi date; n int;
+  anna bigint; chloe bigint; yann bigint; v_serie bigint; v_seance bigint; v_seance2 bigint;
+begin
+  if not exists (select 1 from cron.job where jobname = 'planning-generer-seances') then raise exception 'ÉCHEC : cron non planifié'; end if;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  select personne_id into yann from public.collaborateurs where collab_id = 'COLL032';
+  select t.id into t_appro from planning.tache t join planning.atelier a on a.id = t.atelier_id where a.nom = 'Appros-marchés' and t.nom = 'Vente St Jo';
+  select t.id into t_paniers from planning.tache t join planning.atelier a on a.id = t.atelier_id where a.nom = 'Paniers' and t.nom = 'Ensachage';
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  insert into planning.atelier_responsable select id, anna from planning.atelier where nom = 'Appros-marchés';
+  resp := jsonb_build_object('type','collab','collab_id','T001','personne_id',anna);
+  collab := jsonb_build_object('type','collab','collab_id','T004','personne_id',chloe);
+  lundi := date_trunc('week', current_date)::date + 7;
+
+  set local role service_role;
+  -- Droits
+  r := public.planning_appel(adm, 'session');
+  if r->'droits'->>'niveau' <> 'complet' or jsonb_array_length(r->'droits'->'ateliers') <> 7 then raise exception 'ÉCHEC : droits admin %', r->'droits'; end if;
+  if jsonb_array_length(r->'referentiel'->'taches') <> 15 then raise exception 'ÉCHEC : référentiel'; end if;
+  if public.planning_appel(pauline, 'session')->'droits'->>'niveau' <> 'consultation' then raise exception 'ÉCHEC : admin sans réglage'; end if;
+  if public.planning_appel(resp, 'session')->'droits'->>'niveau' <> 'responsable' then raise exception 'ÉCHEC : responsable'; end if;
+  if public.planning_appel(collab, 'session')->'droits'->>'niveau' <> 'collaborateur' then raise exception 'ÉCHEC : collaborateur'; end if;
+
+  -- Le responsable crée une série St Jo le samedi, avec Yann et Chloé.
+  r := public.planning_appel(resp, 'serie_creer', jsonb_build_object('tache_id', t_appro, 'jours', jsonb_build_array(6),
+         'debut', '07:30', 'fin', '12:30', 'date_debut', lundi, 'personnes', jsonb_build_array(yann, chloe)));
+  v_serie := (r->>'serie_id')::bigint;
+  if (r->>'seances_creees')::int < 8 then raise exception 'ÉCHEC : % séances créées', r->>'seances_creees'; end if;
+
+  -- Il ne peut pas toucher aux Paniers, ni fermer une journée.
+  begin perform public.planning_appel(resp, 'seance_creer', jsonb_build_object('tache_id', t_paniers, 'date', lundi, 'debut', '09:00', 'fin', '10:00'));
+    raise exception 'ÉCHEC : responsable a modifié un autre atelier'; exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  begin perform public.planning_appel(resp, 'jour_fermer', jsonb_build_object('date', lundi));
+    raise exception 'ÉCHEC : responsable a fermé une journée'; exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  -- Ni un collaborateur, ni Pauline ne peuvent écrire.
+  begin perform public.planning_appel(collab, 'seance_creer', jsonb_build_object('tache_id', t_appro, 'date', lundi, 'debut', '09:00', 'fin', '10:00'));
+    raise exception 'ÉCHEC : collaborateur a écrit'; exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  begin perform public.planning_appel(pauline, 'seance_creer', jsonb_build_object('tache_id', t_appro, 'date', lundi, 'debut', '09:00', 'fin', '10:00'));
+    raise exception 'ÉCHEC : consultation a écrit'; exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+
+  -- La semaine : la séance du samedi, avec ses deux personnes, Chloé en màd.
+  r := public.planning_appel(collab, 'semaine', jsonb_build_object('lundi', lundi));
+  if jsonb_array_length(r->'seances') <> 1 then raise exception 'ÉCHEC : % séances dans la semaine', jsonb_array_length(r->'seances'); end if;
+  v_seance := (r->'seances'->0->>'id')::bigint;
+  if jsonb_array_length(r->'seances'->0->'personnes') <> 2 then raise exception 'ÉCHEC : personnes de la séance'; end if;
+  if not exists (select 1 from jsonb_array_elements(r->'seances'->0->'personnes') e where (e->>'personne_id')::bigint = chloe and (e->>'mad')::boolean) then
+    raise exception 'ÉCHEC : màd non visible'; end if;
+  if jsonb_array_length(r->'personnes') < 5 then raise exception 'ÉCHEC : panneau des personnes'; end if;
+
+  -- L'admin ajoute une séance Paniers le samedi 9 h avec Yann : chevauchement signalé.
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t_paniers, 'date', lundi + 5, 'debut', '09:00', 'fin', '10:00'));
+  v_seance2 := (r->>'seance_id')::bigint;
+  r := public.planning_appel(adm, 'affecter', jsonb_build_object('seance_id', v_seance2, 'personne_id', yann));
+  if jsonb_array_length(r->'chevauchements') <> 2 then raise exception 'ÉCHEC : chevauchement à l''affectation'; end if;
+  r := public.planning_appel(adm, 'retirer', jsonb_build_object('seance_id', v_seance2, 'personne_id', yann));
+  if jsonb_array_length(r->'chevauchements') <> 0 then raise exception 'ÉCHEC : chevauchement après retrait'; end if;
+
+  -- Déplacer cette seule séance au vendredi : la semaine suivante ne bouge pas.
+  perform public.planning_appel(resp, 'seance_modifier', jsonb_build_object('seance_id', v_seance, 'date', lundi + 4, 'portee', 'seance'));
+  r := public.planning_appel(resp, 'semaine', jsonb_build_object('lundi', lundi + 7));
+  if (select count(*) from jsonb_array_elements(r->'seances') e where (e->>'tache_id')::bigint = t_appro and (e->>'date_seance')::date = lundi + 12) <> 1 then
+    raise exception 'ÉCHEC : la semaine suivante a bougé'; end if;
+
+  -- Cette séance et les suivantes, semaine d'après : samedi -> dimanche, 08:00-13:00.
+  select (e->>'id')::bigint into v_seance from jsonb_array_elements(r->'seances') e where (e->>'tache_id')::bigint = t_appro;
+  perform public.planning_appel(resp, 'seance_modifier', jsonb_build_object('seance_id', v_seance, 'date', lundi + 13, 'debut', '08:00', 'fin', '13:00', 'portee', 'suivantes'));
+  r := public.planning_appel(resp, 'semaine', jsonb_build_object('lundi', lundi + 14));
+  if (select count(*) from jsonb_array_elements(r->'seances') e where (e->>'tache_id')::bigint = t_appro
+        and (e->>'date_seance')::date = lundi + 20 and e->>'heure_debut' = '08:00:00') <> 1 then
+    raise exception 'ÉCHEC : la série n''a pas suivi (dimanche 08:00)'; end if;
+  if (select count(*) from jsonb_array_elements(r->'seances') e where (e->>'tache_id')::bigint = t_appro and (e->>'date_seance')::date = lundi + 19) <> 0 then
+    raise exception 'ÉCHEC : l''ancien samedi existe encore'; end if;
+  -- La première semaine garde son vendredi.
+  r := public.planning_appel(resp, 'semaine', jsonb_build_object('lundi', lundi));
+  if (select count(*) from jsonb_array_elements(r->'seances') e where (e->>'tache_id')::bigint = t_appro and (e->>'date_seance')::date = lundi + 4) <> 1 then
+    raise exception 'ÉCHEC : la séance déplacée seule a disparu'; end if;
+
+  -- L'admin ferme le dimanche de la 3e semaine : séance suspendue, plus comptée.
+  r := public.planning_appel(adm, 'jour_fermer', jsonb_build_object('date', lundi + 20, 'motif', 'Test'));
+  if (r->>'seances_suspendues')::int <> 1 then raise exception 'ÉCHEC : fermeture'; end if;
+
+  -- Journal tenu.
+  reset role;
+  select count(*) into n from planning.journal;
+  if n <> 7 then raise exception 'ÉCHEC : journal (% lignes)', n; end if;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie;
+  delete from planning.jour_ferme; delete from planning.journal; delete from planning.atelier_responsable; delete from planning.acces_admin;
+end $$;
 select 'Vérifications : toutes réussies';

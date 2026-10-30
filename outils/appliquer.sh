@@ -20,7 +20,12 @@ classe_de() {
   # Méta-commandes psql (lignes commençant par \) : interdites partout.
   if grep -qE '^[[:space:]]*\\' "$f"; then echo "interdite"; return; fi
   if [ "$entete" != "-- portee: planning" ]; then echo "validation"; return; fi
-  if grep -qiE '\b(drop|truncate)\b|delete[[:space:]]+from|\b(set|reset)[[:space:]]+(local[[:space:]]+|session[[:space:]]+)?role\b|session[[:space:]]+authorization|\bpg_read_file\b|\bdblink\b' "$f"; then
+  # Changements de rôle et accès système : interdits partout, corps de fonctions compris.
+  if grep -qiE '\b(set|reset)[[:space:]]+(local[[:space:]]+|session[[:space:]]+)?role\b|session[[:space:]]+authorization|\bpg_read_file\b|\bdblink\b' "$f"; then
+    echo "validation"; return
+  fi
+  # Destructions : cherchées hors des corps de fonctions ($$ … $$), où un delete est de la logique normale.
+  if perl -0777 -pe 's/\$(\w*)\$.*?\$\1\$//gs; s/--[^\n]*//g' "$f" | grep -qiE '\b(drop|truncate)\b|delete[[:space:]]+from'; then
     echo "validation"; return
   fi
   echo "planning"

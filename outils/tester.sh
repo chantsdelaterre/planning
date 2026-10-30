@@ -31,6 +31,14 @@ echo "8. Une migration « planning » contenant drop passe en validation"
 printf -- '-- portee: planning\ndrop table if exists planning.inexistante;\n' > "$tmp/migrations/9999_malveillante.sql"
 "$tmp/outils/appliquer.sh" analyser "$url" | grep -q '9999_malveillante.sql (validation)' || { echo "ÉCHEC : drop non détecté"; exit 1; }
 echo "   ok"
+echo "8b. Un delete dans un corps de fonction reste automatique, hors corps il passe en validation"
+printf -- '-- portee: planning\ncreate function planning.t_ok() returns void language sql as $$ delete from planning.journal where false $$;\n' > "$tmp/migrations/9999_malveillante.sql"
+"$tmp/outils/appliquer.sh" analyser "$url" | grep -q '9999_malveillante.sql (planning)' || { echo "ÉCHEC : delete en corps de fonction mal classé"; exit 1; }
+printf -- '-- portee: planning\ndelete from planning.journal;\n' > "$tmp/migrations/9999_malveillante.sql"
+"$tmp/outils/appliquer.sh" analyser "$url" | grep -q '9999_malveillante.sql (validation)' || { echo "ÉCHEC : delete hors fonction non détecté"; exit 1; }
+printf -- '-- portee: planning\ncreate function planning.t_ko() returns void language plpgsql as $f$ begin set role postgres; end $f$;\n' > "$tmp/migrations/9999_malveillante.sql"
+"$tmp/outils/appliquer.sh" analyser "$url" | grep -q '9999_malveillante.sql (validation)' || { echo "ÉCHEC : set role en corps de fonction non détecté"; exit 1; }
+echo "   ok"
 echo "9. Une méta-commande psql est refusée"
 printf -- '-- portee: validation\n\\! env\n' > "$tmp/migrations/9999_malveillante.sql"
 if "$tmp/outils/appliquer.sh" analyser "$url" >/dev/null 2>&1; then echo "ÉCHEC : méta-commande acceptée"; exit 1; fi

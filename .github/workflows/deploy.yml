@@ -89,3 +89,10 @@ jobs:
             case "$n" in planning-*) ;; *) echo "::error::$n refusé : préfixe planning- obligatoire"; exit 1;; esac
             supabase functions deploy "$n" --project-ref "$PROJET" --no-verify-jwt
           done
+      - if: steps.liste.outputs.noms != ''
+        name: Test de fumée (faux jeton refusé, aucune donnée)
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://$PROJET.supabase.co/functions/v1/planning-api" \
+            -H 'Content-Type: application/json' -d '{"action":"session","jeton":"jeton-inexistant"}')
+          echo "planning-api avec un faux jeton : HTTP $code (401 attendu)"
+          test "$code" = "401" || { echo "::error::planning-api répond $code au lieu de 401"; exit 1; }

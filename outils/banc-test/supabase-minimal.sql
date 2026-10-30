@@ -53,3 +53,10 @@ alter table public.jours enable row level security;
 create table public.admins (admin_id text primary key, nom text, token text, actif boolean default true);
 insert into public.admins values ('admin_test1', 'Test un', 'jA1', true), ('admin_test2', 'Test deux', 'jA2', true);
 alter table public.admins enable row level security;
+
+-- pg_cron (réplique minimale) : on enregistre seulement les planifications.
+create schema cron;
+create table cron.job (jobid bigserial primary key, jobname text unique, schedule text, command text);
+create function cron.schedule(p_nom text, p_horaire text, p_commande text) returns bigint
+language sql as $$ insert into cron.job (jobname, schedule, command) values (p_nom, p_horaire, p_commande)
+  on conflict (jobname) do update set schedule = excluded.schedule, command = excluded.command returning jobid $$;
