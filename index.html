@@ -15,9 +15,9 @@
     <span>Planning · Chants de la Terre</span>
   </div>
   <nav aria-label="Vues" class="onglets">
-    <a href="#" class="onglet actif" aria-current="page">Général</a>
-    <span class="onglet bientot" title="Lot 4">Par personne</span>
-    <span class="onglet bientot" title="Lot 4">Par activité</span>
+    <button type="button" class="onglet actif" data-vue="general" aria-current="page">Général</button>
+    <button type="button" class="onglet" data-vue="personne">Par personne</button>
+    <button type="button" class="onglet" data-vue="activite">Par activité</button>
     <span class="onglet bientot" title="Lot 5">Récapitulatifs</span>
   </nav>
   <div class="qui" id="qui"></div>
@@ -34,6 +34,7 @@
       <button class="icone" id="suiv" aria-label="Semaine suivante"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
       <button class="bouton" id="auj">Cette semaine</button>
     </div>
+    <label class="choix-vue" id="choix-vue" hidden><span id="choix-libelle">Personne</span><select id="choix"></select></label>
     <div class="actions">
       <label class="case"><input type="checkbox" id="dimanche"> Dimanche</label>
       <button class="bouton" id="btn-selection" aria-expanded="false">Sélection</button>
@@ -62,6 +63,7 @@
   <div class="corps">
     <div class="grille-cadre" id="grille-cadre">
       <div class="grille" id="grille"></div>
+      <div class="tableau" id="tableau" hidden></div>
     </div>
     <div class="separateur" id="separateur" role="separator" aria-orientation="vertical" aria-label="Largeur du volet (glisser)" tabindex="0"></div>
     <aside class="cote" id="volet">

@@ -17,6 +17,11 @@ button, input, select { font: inherit; color: inherit; }
 .onglet { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 6px; color: #E3E6E2; text-decoration: none; font-size: 14px; }
 .onglet.actif { background: var(--fond); color: var(--encre); font-weight: 600; }
 .onglet.bientot { opacity: .55; cursor: default; }
+button.onglet { background: none; border: 0; cursor: pointer; }
+button.onglet:hover:not(.actif) { background: #2E3631; }
+.choix-vue { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
+.choix-vue select { min-height: 44px; min-width: 220px; max-width: 320px; padding: 0 10px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--carte); font-weight: 500; }
+.choix-vue[hidden] { display: none; }
 .qui { margin-left: auto; font-size: 13px; color: #C9CEC9; }
 
 .bandeau-demo { background: #FFF4D6; color: #5C4300; padding: 8px 24px; font-size: 13px; font-weight: 500; }
@@ -101,6 +106,25 @@ button, input, select { font: inherit; color: inherit; }
 .etiquette.rouge { background: var(--rouge); color: #fff; border-color: var(--rouge); }
 .fantome { position: absolute; left: 3px; right: 3px; border: 2px dashed var(--vert); border-radius: 6px; background: rgba(47,107,79,.08); pointer-events: none; z-index: 4; font-size: 11px; padding: 2px 6px; color: var(--vert-fonce); font-family: 'IBM Plex Mono', monospace; }
 
+/* Tableau (vue par activité) */
+.tableau { padding: 16px 18px 20px; min-width: 640px; }
+.tableau table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tableau th { text-align: left; font-size: 12px; font-weight: 600; color: var(--discret); text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px; border-bottom: 1px solid var(--trait); }
+.tableau td { padding: 8px; border-bottom: 1px solid var(--trait-2); vertical-align: top; }
+.tableau .nb { text-align: right; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+.tableau tr.jour td { background: var(--fond); font-weight: 600; border-bottom: 1px solid var(--trait); }
+.tableau tr.ligne { cursor: pointer; }
+.tableau tr.ligne:hover td { background: #F8F9F6; }
+.tableau tr.ligne.choisie td { background: #E6F0EA; }
+.tableau tr.ligne.suspendue td { color: #6B716C; }
+.tableau tr.ligne.suspendue .tache-nom { text-decoration: line-through; }
+.tableau tr.total td { font-weight: 700; border-top: 2px solid var(--encre); border-bottom: 0; }
+.tableau .tache-nom { font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.tableau h3 { font-size: 15px; margin: 22px 0 6px; }
+.tableau .bilans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.tableau .vide { color: var(--discret); padding: 24px 8px; }
+.tableau[hidden], .grille[hidden] { display: none; }
+
 /* Côté */
 .cote { flex: 0 0 var(--largeur-volet, 320px); min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .cote[hidden], .separateur[hidden] { display: none !important; }
@@ -116,7 +140,9 @@ button, input, select { font: inherit; color: inherit; }
 .personne { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 8px; border-radius: 6px; user-select: none; }
 .personne[draggable="true"] { cursor: grab; }
 .personne:hover { background: #F4F6F2; }
-.personne .nom { font-size: 14px; font-weight: 500; line-height: 1.2; }
+.personne .nom { font-size: 14px; font-weight: 500; line-height: 1.2; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.personne .nom:hover { text-decoration: underline; }
+.personne.courante { background: #E6F0EA; }
 .personne .contrat { font-size: 11px; color: var(--discret); }
 .personne .jauge { width: 92px; flex: none; text-align: right; font-size: 12px; }
 .personne .barre-j { height: 4px; border-radius: 2px; background: var(--trait-2); margin-top: 3px; overflow: hidden; }
@@ -167,19 +193,23 @@ button, input, select { font: inherit; color: inherit; }
   .panneau-selection { margin: 0 16px 12px; }
   .selection-colonnes { grid-template-columns: 1fr; }
   .actions { margin-left: 0; }
+  .choix-vue { width: 100%; }
+  .choix-vue select { flex: 1; max-width: none; min-width: 0; }
+  .tableau .bilans { grid-template-columns: 1fr; }
   .ligne3, .edition { grid-template-columns: 1fr 1fr; }
 }
 
 /* Impression : la grille seule, en paysage */
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
-  .barre, .outils .actions, .semaine-nav button, .panneau-selection, .cote, .bandeau-demo, .message { display: none !important; }
+  .barre, .outils .actions, .semaine-nav button, .choix-vue, .panneau-selection, .cote, .bandeau-demo, .message { display: none !important; }
   body { background: #fff; height: auto !important; display: block !important; }
   #app { display: block !important; }
   .corps, .outils, .legende { padding: 0; }
   .grille-cadre { border: 0; overflow: visible; height: auto !important; }
   .corps { height: auto !important; }
-  .grille { min-width: 0; }
+  .grille, .tableau { min-width: 0; }
+  .tableau tr.ligne.choisie td { background: none; }
   .seance { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
