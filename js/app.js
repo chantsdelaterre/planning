@@ -908,7 +908,35 @@
       ...ateliers.map((at) => el('th', { class: 'at' }, el('span', { class: 'pastille', style: 'background:' + at.couleur }), ' ', at.nom)))), tb));
   }
 
+  // Lien planning d'une personne ({personne_id, prenom, nom}) ou d'un administrateur ({admin_id, prenom}).
+  function celluleLien(c) {
+    const lien = (A.donnees.liens || []).find((l) => (c.admin_id ? l.admin_id === c.admin_id : l.personne_id === c.personne_id));
+    const dt = (x) => x ? D.court(x.slice(0, 10)) : '';
+    const cle = c.admin_id ? { admin_id: c.admin_id } : { personne_id: c.personne_id };
+    return el('td', {},
+      lien ? el('div', { class: 'lien-etat' + (lien.valide ? '' : ' mort') }, 'créé le ' + dt(lien.cree_le) + (lien.dernier_usage ? ' · utilisé le ' + dt(lien.dernier_usage) : ' · jamais utilisé') + (lien.valide ? '' : ' · inactif'))
+           : el('div', { class: 'lien-etat' }, 'aucun'),
+      lectureSeule() ? null : el('div', { class: 'ref-ligne' },
+        el('button', { type: 'button', class: 'bouton mini', onclick: () => creerLien(c, !!lien) }, lien ? 'Nouveau lien' : 'Créer le lien'),
+        lien ? el('button', { type: 'button', class: 'bouton mini danger', onclick: () => { if (confirm('Révoquer le lien planning de ' + c.prenom + ' ? Il cessera aussitôt de fonctionner.')) adminAgir('lien_revoquer', cle, 'Lien révoqué.'); } }, 'Révoquer') : null));
+  }
+  function adminAdministrateurs(z) {
+    const d = A.donnees;
+    const tb = el('tbody');
+    for (const a of d.admins || []) {
+      const niv = el('select', { class: 'champ', 'aria-label': 'Niveau de ' + a.nom, disabled: lectureSeule(),
+        onchange: (e) => adminAgir('admin_niveau', { admin_id: a.admin_id, niveau: e.target.value }, 'Niveau de ' + a.nom + ' changé.') },
+        el('option', { value: 'complet', selected: a.niveau === 'complet' }, 'Tout (modifie et administre)'),
+        el('option', { value: 'consultation', selected: a.niveau !== 'complet' }, 'Lecture seule'));
+      tb.append(el('tr', {}, el('td', {}, el('strong', {}, a.nom || a.admin_id)), el('td', {}, niv), celluleLien({ admin_id: a.admin_id, prenom: a.nom || a.admin_id, nom: '' })));
+    }
+    z.append(el('h3', {}, 'Administrateurs'),
+      el('p', { class: 'sous' }, 'Les administrateurs de Suivi des temps. « Tout » : modifie tous les ateliers et administre le planning. « Lecture seule » : voit tout, ne modifie rien. Leur lien planning n\'ouvre que le planning et s\'arrête si leur accès est désactivé dans Suivi des temps.'),
+      el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Administrateur'), el('th', {}, 'Niveau'), el('th', {}, 'Lien planning'))), tb),
+      el('h3', {}, 'Collaborateurs et responsables'));
+  }
   function adminAcces(z) {
+    adminAdministrateurs(z);
     const d = A.donnees;
     const q = A.q.trim().toLowerCase();
     const gens = d.personnes.filter((p) => p.active && (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q)));
@@ -920,14 +948,7 @@
       const defaut = [...new Set(hab.concat(resp))].map((id) => nomEl('atelier', id) + (resp.includes(id) ? ' (resp.)' : ''));
       const tout = (d.acces_tout || []).includes(p.id);
       const plus = (d.acces_elements || []).filter((e) => e[0] === p.id).map((e) => nomEl(e[1], e[2]));
-      const lien = (d.liens || []).find((l) => l.personne_id === p.id);
-      const dt = (x) => x ? D.court(x.slice(0, 10)) : '';
-      const celLien = el('td', {},
-        lien ? el('div', { class: 'lien-etat' + (lien.valide ? '' : ' mort') }, 'créé le ' + dt(lien.cree_le) + (lien.dernier_usage ? ' · utilisé le ' + dt(lien.dernier_usage) : ' · jamais utilisé') + (lien.valide ? '' : ' · inactif'))
-             : el('div', { class: 'lien-etat' }, 'aucun'),
-        lectureSeule() ? null : el('div', { class: 'ref-ligne' },
-          el('button', { type: 'button', class: 'bouton mini', onclick: () => creerLien(p, !!lien) }, lien ? 'Nouveau lien' : 'Créer le lien'),
-          lien ? el('button', { type: 'button', class: 'bouton mini danger', onclick: () => { if (confirm('Révoquer le lien planning de ' + p.prenom + ' ? Il cessera aussitôt de fonctionner.')) adminAgir('lien_revoquer', { personne_id: p.id }, 'Lien révoqué.'); } }, 'Révoquer') : null));
+      const celLien = celluleLien({ personne_id: p.id, prenom: p.prenom, nom: p.nom });
       tb.append(el('tr', {},
         el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, (p.societes || []).join(' + '))),
         el('td', { class: 'acces-defaut' }, defaut.length ? defaut.join(', ') : el('span', { class: 'sous' }, 'ses séances seulement')),
@@ -940,9 +961,9 @@
   async function creerLien(p, remplace) {
     if (remplace && !confirm('Créer un nouveau lien pour ' + p.prenom + ' ? L\'ancien cessera de fonctionner.')) return;
     let r;
-    try { r = await API.appeler('lien_generer', { personne_id: p.id }); } catch (e) { dire(e.message, true); return; }
+    try { r = await API.appeler('lien_generer', p.admin_id ? { admin_id: p.admin_id } : { personne_id: p.personne_id || p.id }); } catch (e) { dire(e.message, true); return; }
     const url = location.origin + location.pathname + '?lien=' + r.jeton;
-    $('#dlg-lien-titre').textContent = 'Lien planning de ' + p.prenom + ' ' + p.nom;
+    $('#dlg-lien-titre').textContent = 'Lien planning de ' + (p.prenom + ' ' + (p.nom || '')).trim();
     $('#fl-url').value = url;
     $('#fl-copier').onclick = async () => {
       try { await navigator.clipboard.writeText(url); dire('Lien copié.'); } catch (e) { $('#fl-url').select(); document.execCommand('copy'); dire('Lien copié.'); }

@@ -687,3 +687,29 @@ begin
   delete from planning.lien; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 22 : réussie';
+
+-- 23-24. Administrateurs : niveau réglable, liens planning ; mort si l'admin est désactivé.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; jeton text; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  set local role service_role;
+  r := public.planning_appel(adm, 'admin_lire', '{}');
+  if jsonb_array_length(r->'admins') <> 2 or (r->'admins') @> '[{"token":"jA1"}]' or r::text like '%jA2%' then raise exception 'ÉCHEC : liste des admins (ou jeton exposé)'; end if;
+  jeton := public.planning_appel(adm, 'lien_generer', '{"admin_id":"admin_test2"}')->>'jeton';
+  r := public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}');
+  if r->'droits'->>'niveau' <> 'consultation' then raise exception 'ÉCHEC : niveau par lien %', r->'droits'->>'niveau'; end if;
+  begin perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'ref_enregistrer', '{"type":"activite","nom":"X"}'); raise exception 'ÉCHEC : consultation a écrit';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  perform public.planning_appel(adm, 'admin_niveau', '{"admin_id":"admin_test2","niveau":"complet"}');
+  if public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}')->'droits'->>'niveau' <> 'complet' then raise exception 'ÉCHEC : passage en complet'; end if;
+  perform public.planning_appel(adm, 'admin_niveau', '{"admin_id":"admin_test2","niveau":"consultation"}');
+  begin perform public.planning_appel(adm, 'admin_niveau', '{"admin_id":"admin_test1","niveau":"consultation"}'); raise exception 'ÉCHEC : dernier accès complet retiré';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role; update public.admins set actif = false where admin_id = 'admin_test2'; set local role service_role;
+  begin perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}'); raise exception 'ÉCHEC : lien d''un admin désactivé';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role; update public.admins set actif = true where admin_id = 'admin_test2';
+  delete from planning.lien; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 23-24 : réussie';

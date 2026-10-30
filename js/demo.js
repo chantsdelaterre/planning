@@ -58,6 +58,7 @@
   const series = [];
   const responsables = [[1, 4]];  // David Modèle responsable de Paniers
   const accesTout = [], accesElements = [], liens = [];
+  const admins = [{ admin_id: 'a1', nom: 'Admin Un (fictif)', niveau: 'complet' }, { admin_id: 'a2', nom: 'Admin Deux (fictif)', niveau: 'complet' }, { admin_id: 'a3', nom: 'Admin Trois (fictif)', niveau: 'consultation' }];
   // Tâches visibles (null = toutes), comme dans la base.
   function tachesVisibles() {
     if (['complet', 'consultation'].includes(droits.niveau)) return null;
@@ -243,7 +244,7 @@
         regroupements: R.regroupements.map((a) => Object.assign({ ordre: 0, archive: !!a.archive }, a)),
         taches: R.taches.map((t) => Object.assign({ ordre: 0, archive: !!t.archive, seances: S.filter((x) => x.tache_id === t.id).length }, t)),
         societes: [{ code: 'SAS', nom: 'SAS (fictive)' }, { code: 'SARL', nom: 'SARL (fictive)' }, { code: 'SCEA', nom: 'SCEA (fictive)' }],
-        liens: liens.slice(), acces_tout: accesTout.slice(), acces_elements: accesElements.slice(), responsables: responsables.slice(), habituels: P.flatMap((x) => x.ateliers_habituels.map((a) => [x.id, a])),
+        admins: admins.map((a) => Object.assign({}, a)), liens: liens.slice(), acces_tout: accesTout.slice(), acces_elements: accesElements.slice(), responsables: responsables.slice(), habituels: P.flatMap((x) => x.ateliers_habituels.map((a) => [x.id, a])),
         personnes: P.map((x) => ({ id: x.id, prenom: x.prenom, nom: x.nom, sans_fiche: x.externe, active: !x.externe, societes: x.fiches.map((f) => f.societe),
           nature: x.externe ? x.nature || 'externe' : null, archive: !!x.archive, seances: S.filter((s) => s.personnes.some((y) => y.personne_id === x.id)).length,
           suggestions: x.externe ? P.filter((y) => !y.externe && y.id !== x.id && ((sa(x.nom) && sa(y.nom) === sa(x.nom)) || sa(y.prenom) === sa(x.prenom))).map((y) => y.id) : null })),
@@ -289,10 +290,14 @@
       const k = responsables.findIndex((r) => r[0] === +q.atelier_id && r[1] === +q.personne_id);
       if (q.ajouter === false) { if (k >= 0) responsables.splice(k, 1); } else if (k < 0) responsables.push([+q.atelier_id, +q.personne_id]); return {}; },
     lien_generer: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
-      const pid = +q.personne_id; for (let k = liens.length - 1; k >= 0; k--) if (liens[k].personne_id === pid) liens.splice(k, 1);
-      liens.push({ personne_id: pid, cree_le: new Date().toISOString(), dernier_usage: null, valide: true });
+      const pid = q.admin_id ? null : +q.personne_id, aid = q.admin_id || null;
+      for (let k = liens.length - 1; k >= 0; k--) if (aid ? liens[k].admin_id === aid : liens[k].personne_id === pid) liens.splice(k, 1);
+      liens.push({ personne_id: pid, admin_id: aid, cree_le: new Date().toISOString(), dernier_usage: null, valide: true });
       return { personne_id: pid, jeton: Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('') }; },
-    lien_revoquer: (q) => { for (let k = liens.length - 1; k >= 0; k--) if (liens[k].personne_id === +q.personne_id) liens.splice(k, 1); return {}; },
+    lien_revoquer: (q) => { for (let k = liens.length - 1; k >= 0; k--) if (q.admin_id ? liens[k].admin_id === q.admin_id : liens[k].personne_id === +q.personne_id) liens.splice(k, 1); return {}; },
+    admin_niveau: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
+      if (q.niveau === 'consultation' && !admins.some((a) => a.niveau === 'complet' && a.admin_id !== q.admin_id)) throw new Error('Il faut garder au moins un accès complet');
+      admins.find((a) => a.admin_id === q.admin_id).niveau = q.niveau; return {}; },
     acces_regler: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
       const pid = +q.personne_id; const i = accesTout.indexOf(pid); if (q.tout && i < 0) accesTout.push(pid); if (!q.tout && i >= 0) accesTout.splice(i, 1);
       if (q.elements) { for (let k = accesElements.length - 1; k >= 0; k--) if (accesElements[k][0] === pid) accesElements.splice(k, 1); q.elements.forEach(([t, id]) => accesElements.push([pid, t, +id])); }
