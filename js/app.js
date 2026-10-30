@@ -395,6 +395,12 @@
         s.statut === 'prevue'
           ? el('button', { class: 'bouton', onclick: () => { const motif = prompt('Motif de la suspension (facultatif) :', ''); if (motif !== null) agir('suspendre', { seance_id: s.id, motif }, 'Séance suspendue.'); } }, 'Suspendre')
           : el('button', { class: 'bouton', onclick: () => agir('reprendre', { seance_id: s.id }, 'Séance rétablie.') }, 'Rétablir'),
+        el('button', { class: 'bouton danger', onclick: () => {
+          const msg = s.serie_id
+            ? 'Supprimer la séance du ' + D.long(s.date_seance) + ' ? Les autres séances de la série ne changent pas.'
+            : 'Supprimer la séance du ' + D.long(s.date_seance) + ' ?';
+          if (confirm(msg)) { etat.choisie = null; agir('seance_supprimer', { seance_id: s.id }, 'Séance supprimée.'); }
+        } }, 'Supprimer la séance'),
         s.serie_id ? el('button', { class: 'bouton danger', onclick: () => {
           const fin = D.ajout(s.date_serie, -1);
           if (confirm('Arrêter la série : plus aucune séance à partir du ' + D.long(s.date_serie) + ' ? Les séances passées restent.')) agir('serie_arreter', { serie_id: s.serie_id, date_fin: fin }, 'Série arrêtée.');

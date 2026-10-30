@@ -299,4 +299,33 @@ begin
   delete from planning.seance; delete from planning.serie_personne; delete from planning.serie;
   delete from planning.jour_ferme; delete from planning.journal; delete from planning.atelier_responsable; delete from planning.acces_admin;
 end $$;
+-- Suppression (0010)
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; s bigint; x bigint; lundi date; r jsonb; n int;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select id into t from planning.tache where nom = 'Ensachage';
+  lundi := date_trunc('week', current_date)::date + 7;
+  set local role service_role;
+  -- Ponctuelle : supprimée pour de bon.
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', lundi, 'debut', '09:00', 'fin', '10:00'));
+  x := (r->>'seance_id')::bigint;
+  perform public.planning_appel(adm, 'seance_supprimer', jsonb_build_object('seance_id', x));
+  if exists (select 1 from planning.seance where id = x) then raise exception 'ÉCHEC : ponctuelle non supprimée'; end if;
+  -- De série : masquée, et la génération ne la recrée pas.
+  r := public.planning_appel(adm, 'serie_creer', jsonb_build_object('tache_id', t, 'jours', jsonb_build_array(1), 'debut', '09:00', 'fin', '12:00', 'date_debut', lundi));
+  s := (r->>'serie_id')::bigint;
+  select id into x from planning.seance where serie_id = s and date_serie = lundi;
+  perform public.planning_appel(adm, 'seance_supprimer', jsonb_build_object('seance_id', x));
+  r := public.planning_appel(adm, 'semaine', jsonb_build_object('lundi', lundi));
+  if jsonb_array_length(r->'seances') <> 0 then raise exception 'ÉCHEC : séance supprimée encore visible'; end if;
+  perform planning.generer_seances(lundi + 56, lundi);
+  select count(*) into n from planning.seance where serie_id = s and date_serie = lundi;
+  if n <> 1 then raise exception 'ÉCHEC : séance supprimée recréée (%)', n; end if;
+  r := public.planning_appel(adm, 'semaine', jsonb_build_object('lundi', lundi + 7));
+  if jsonb_array_length(r->'seances') <> 1 then raise exception 'ÉCHEC : la semaine suivante a perdu sa séance'; end if;
+  reset role;
+  if not exists (select 1 from planning.journal where action = 'supprimer') then raise exception 'ÉCHEC : suppression non journalisée'; end if;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
+end $$;
 select 'Vérifications : toutes réussies';

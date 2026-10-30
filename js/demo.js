@@ -171,6 +171,7 @@
       if ('titre' in q) s.titre = q.titre || null; if ('lieu' in q) s.lieu = q.lieu || null;
       s.modifiee = true; return { seance_id: s.id };
     },
+    seance_supprimer: (q) => { const s = seance(q.seance_id); exiger(atelierDe(s)); S.splice(S.indexOf(s), 1); return { seance_id: s.id }; },
     serie_arreter: (q) => { const se = series.find((x) => x.id === +q.serie_id); exiger(tache(se.tache_id).atelier_id); se.date_fin = q.date_fin;
       for (let i = S.length - 1; i >= 0; i--) if (S[i].serie_id === se.id && S[i].date_seance > q.date_fin) S.splice(i, 1); return {}; },
     affecter: (q) => { const s = seance(q.seance_id); exiger(atelierDe(s)); affecter(s, +q.personne_id); s.modifiee = !!s.serie_id || s.modifiee; return { chevauchements: [] }; },
