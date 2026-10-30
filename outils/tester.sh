@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${PGHOST:=/tmp/pgtest}" "${PGPORT:=54329}" "${PGUSER:=postgres}"
 export PGHOST PGPORT PGUSER
+export PGOPTIONS="-c planning.banc_test=oui"
 base=planning_test
 url="postgresql:///$base?host=$PGHOST&port=$PGPORT&user=$PGUSER"
 

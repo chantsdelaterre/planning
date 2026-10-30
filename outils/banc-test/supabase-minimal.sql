@@ -22,7 +22,12 @@ insert into public.collaborateurs (collab_id, prenom, nom, structure, type_contr
   ('T001','Anna','Test','SAS','CDI',35,true,'jetonA'),
   ('T002','Bruno','Essai SAS','SAS','TESA',16,true,'jetonB1'),
   ('T003','Bruno','Essai SARL','SARL','TESA',15,true,'jetonB2'),
-  ('T004','Chloé','Exemple','SCEA','CDI',35,true,'jetonC');
+  ('T004','Chloé','Exemple','SCEA','CDI',35,true,'jetonC'),
+  -- Mêmes identifiants que les deux personnes réelles à deux fiches ; noms fictifs.
+  ('COLL028','Zoé','FICTIVE','SARL','CDI',35,true,'jZ1'),
+  ('COLL035','Zoé','F. (CHANTS DE LA TERRE)','SAS','TESA',8,true,'jZ2'),
+  ('COLL032','Yann','EXEMPLE SAS','SAS','TESA',16,true,'jY1'),
+  ('COLL043','Yann','EXEMPLE 6 SAVEURS','SARL','TESA',15,true,'jY2');
 
 create table public.historique_contrats (id bigint generated always as identity primary key,
   collab_id text not null references public.collaborateurs, date_debut date not null, date_fin date,
@@ -44,3 +49,7 @@ alter table public.structures enable row level security;
 alter table public.collaborateurs enable row level security;
 alter table public.historique_contrats enable row level security;
 alter table public.jours enable row level security;
+
+create table public.admins (admin_id text primary key, nom text, token text, actif boolean default true);
+insert into public.admins values ('admin_test1', 'Test un', 'jA1', true), ('admin_test2', 'Test deux', 'jA2', true);
+alter table public.admins enable row level security;

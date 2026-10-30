@@ -9,7 +9,7 @@ set -euo pipefail
 
 mode="${1:?mode}"; url="${2:?url}"; avec_validation="${3:-}"
 cd "$(dirname "$0")/.."
-export PGOPTIONS="-c statement_timeout=120000"
+export PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=120000"
 PSQL=(psql "$url" -X -q -v ON_ERROR_STOP=1)
 
 sortie() { [ -n "${GITHUB_OUTPUT:-}" ] && echo "$1" >> "$GITHUB_OUTPUT" || true; }
