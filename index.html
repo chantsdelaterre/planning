@@ -18,7 +18,7 @@
     <button type="button" class="onglet actif" data-vue="general" aria-current="page">Général</button>
     <button type="button" class="onglet" data-vue="personne">Par personne</button>
     <button type="button" class="onglet" data-vue="activite">Par activité</button>
-    <span class="onglet bientot" title="Lot 5">Récapitulatifs</span>
+    <button type="button" class="onglet" data-vue="recap">Récapitulatifs</button>
   </nav>
   <div class="qui" id="qui"></div>
 </header>
@@ -59,6 +59,32 @@
   </section>
 
   <div class="legende" id="legende"></div>
+
+  <section id="recap" class="recap" hidden aria-label="Récapitulatifs">
+    <div class="recap-outils">
+      <div class="segments" role="group" aria-label="Récapitulatif">
+        <button type="button" class="segment" data-recap="personne">Par personne</button>
+        <button type="button" class="segment" data-recap="activite" id="r-onglet-activite">Par activité</button>
+      </div>
+      <label>Période<select id="r-periode">
+        <option value="semaine">Cette semaine</option><option value="semaine_prec">Semaine dernière</option>
+        <option value="mois">Ce mois-ci</option><option value="mois_prec">Mois dernier</option>
+        <option value="4sem">4 dernières semaines</option><option value="annee">Depuis le 1er janvier</option>
+        <option value="perso">Dates choisies</option></select></label>
+      <label>Du<input type="date" id="r-debut"></label>
+      <label>au<input type="date" id="r-fin"></label>
+      <label>Détail<select id="r-pas"><option value="jour">Par jour</option><option value="semaine">Par semaine</option><option value="mois">Par mois</option></select></label>
+      <label id="r-niveau-l">Regrouper par<select id="r-niveau"><option value="activite">Activité</option><option value="atelier">Atelier</option><option value="tache">Tâche</option><option value="regroupement">Regroupement</option></select></label>
+      <label class="case"><input type="checkbox" id="r-selection"> Seulement la sélection</label>
+      <input type="search" id="r-recherche" placeholder="Rechercher une personne" aria-label="Rechercher une personne">
+      <div class="recap-actions">
+        <button type="button" class="bouton" id="r-csv">Exporter (tableur)</button>
+        <button type="button" class="bouton" id="r-imprimer">Imprimer</button>
+      </div>
+    </div>
+    <div id="r-resume" class="recap-resume"></div>
+    <div class="recap-cadre" id="r-contenu"></div>
+  </section>
 
   <div class="corps">
     <div class="grille-cadre" id="grille-cadre">

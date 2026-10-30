@@ -15,7 +15,7 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const ACTIONS = new Set([
-  "session", "semaine", "seance_creer", "seance_modifier", "seance_supprimer", "serie_creer", "serie_arreter",
+  "session", "semaine", "recap", "seance_creer", "seance_modifier", "seance_supprimer", "serie_creer", "serie_arreter",
   "affecter", "retirer", "suspendre", "reprendre", "jour_fermer",
 ]);
 

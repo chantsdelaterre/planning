@@ -480,3 +480,39 @@ begin
   delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 16 : réussie';
+
+-- 17. Récapitulatifs : prévu, réalisé (Suivi des temps), contrats ; un collaborateur ne voit que lui.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; anna bigint; chloe bigint; lundi date := date_trunc('week', current_date)::date; r jsonb; me jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  insert into public.historique_contrats (collab_id, date_debut, structure, type_contrat, heures_hebdo) values ('T001', lundi - 30, 'SAS', 'CDI', 35), ('T004', lundi - 30, 'SCEA', 'CDI', 35);
+  insert into public.jours (jour_id, collab_id, date_jour, type_jour, total_heures) values
+    ('T001_a', 'T001', lundi, 'travaillée', 7.5), ('T001_b', 'T001', lundi + 1, 'CP', 0), ('T001_c', 'T001', lundi + 2, 'travaillée', 0),
+    ('T004_a', 'T004', lundi, 'travaillée', 6);
+  set local role service_role;
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', lundi, 'debut', '08:00', 'fin', '12:00', 'personnes', jsonb_build_array(anna, chloe)));
+  r := public.planning_appel(adm, 'recap', jsonb_build_object('debut', lundi, 'fin', lundi + 6));
+  if jsonb_array_length(r->'prevu') <> 2 then raise exception 'ÉCHEC : prévu %', r->'prevu'; end if;
+  if jsonb_array_length(r->'realise') <> 3 then raise exception 'ÉCHEC : réalisé % (le jour à 0 h travaillé ne doit pas sortir)', r->'realise'; end if;
+  if jsonb_array_length(r->'mo') <> 1 or (r->'mo'->0->>2)::numeric <> 8 then raise exception 'ÉCHEC : main-d''œuvre %', r->'mo'; end if;
+  if jsonb_array_length(r->'contrats') < 2 then raise exception 'ÉCHEC : contrats'; end if;
+  -- Collaborateur : seulement lui, pas de main-d'œuvre.
+  me := jsonb_build_object('type', 'collab', 'personne_id', anna);
+  r := public.planning_appel(me, 'recap', jsonb_build_object('debut', lundi, 'fin', lundi + 6));
+  if exists (select 1 from jsonb_array_elements(r->'prevu') e where (e->>0)::bigint <> anna)
+     or exists (select 1 from jsonb_array_elements(r->'realise') e where (e->>0)::bigint <> anna)
+     or exists (select 1 from jsonb_array_elements(r->'contrats') e where (e->>0)::bigint <> anna)
+     or jsonb_array_length(r->'personnes') <> 1 or jsonb_array_length(r->'mo') <> 0 then raise exception 'ÉCHEC : un collaborateur voit les autres'; end if;
+  begin
+    perform public.planning_appel(adm, 'recap', jsonb_build_object('debut', lundi, 'fin', lundi + 500));
+    raise exception 'ÉCHEC : période trop longue acceptée';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role;
+  delete from public.jours; delete from public.historique_contrats;
+  delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 17 : réussie';

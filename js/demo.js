@@ -184,6 +184,34 @@
       if ('titre' in q) s.titre = q.titre || null; if ('lieu' in q) s.lieu = q.lieu || null;
       s.modifiee = true; return { seance_id: s.id };
     },
+    // Récapitulatifs : le réalisé fictif reprend le prévu avec de petits écarts, et quelques CP.
+    recap: (q) => {
+      const moi = droits.niveau === 'collaborateur' ? droits.personne_id : null;
+      const ok = (pid) => moi === null || pid === moi;
+      const dans = (d) => d >= q.debut && d <= q.fin;
+      const prevu = {}, mo = {};
+      S.filter((x) => x.statut === 'prevue' && dans(x.date_seance)).forEach((x) => {
+        const v = vue(x, x.date_seance, x.date_seance);
+        x.personnes.filter((y) => ok(y.personne_id)).forEach((y) => { const k = y.personne_id + '|' + x.date_seance + '|' + v.atelier_id; prevu[k] = prevu[k] || [y.personne_id, x.date_seance, v.atelier_id, 0, y.mad]; prevu[k][3] += v.duree_h; });
+        const k = x.date_seance + '|' + x.tache_id; mo[k] = mo[k] || [x.date_seance, x.tache_id, 0, 0]; mo[k][2] += v.main_oeuvre_h; mo[k][3]++;
+      });
+      const parJour = {};
+      Object.values(prevu).forEach(([pid, d, , hh]) => { parJour[pid + '|' + d] = (parJour[pid + '|' + d] || 0) + hh; });
+      const aujourdhui = iso(new Date());
+      const realise = [];
+      Object.entries(parJour).forEach(([k, hh]) => {
+        const [pid, d] = k.split('|'); if (d >= aujourdhui || pers(+pid).externe) return;
+        const graine = (+pid * 7 + +d.slice(8)) % 11;
+        if (graine === 0) realise.push([+pid, d, 'CP', 0]);
+        else realise.push([+pid, d, 'T', Math.max(0, hh + [0, 0.25, -0.5, 0.5, 0, 1, -0.25, 0, 0.75, 0][graine - 1])]);
+      });
+      const gens = P.filter((x) => ok(x.id) && (!x.externe || Object.values(prevu).some((v) => v[0] === x.id)));
+      return {
+        debut: q.debut, fin: q.fin, prevu: Object.values(prevu), realise, mo: moi === null ? Object.values(mo) : [],
+        contrats: gens.flatMap((x) => x.fiches.map((f) => [x.id, f.collab_id, f.societe, f.contrat, f.heures_hebdo || null, '2025-01-01', null])),
+        personnes: gens.map((x) => [x.id, x.prenom, x.nom, x.externe]),
+      };
+    },
     seance_supprimer: (q) => { const s = seance(q.seance_id); exiger(atelierDe(s)); S.splice(S.indexOf(s), 1); return { seance_id: s.id }; },
     serie_arreter: (q) => { const se = series.find((x) => x.id === +q.serie_id); exiger(tache(se.tache_id).atelier_id); se.date_fin = q.date_fin;
       for (let i = S.length - 1; i >= 0; i--) if (S[i].serie_id === se.id && S[i].date_seance > q.date_fin) S.splice(i, 1); return {}; },

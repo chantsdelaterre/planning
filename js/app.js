@@ -144,6 +144,7 @@
       return;
     }
     etat.selection = chargerSelection();
+    initRecap();
     try { const v = JSON.parse(localStorage.getItem('planning_vue') || 'null'); if (v) Object.assign(etat, { vue: v.vue || 'general', personne: v.personne || null, cible: v.cible || null }); } catch (e) { /* rien */ }
     // Un collaborateur arrive sur son propre planning.
     if (etat.droits.niveau === 'collaborateur' && etat.droits.personne_id) { etat.vue = 'personne'; etat.personne = etat.droits.personne_id; }
@@ -212,6 +213,10 @@
 
   function dessiner() {
     const sem = etat.sem; if (!sem) return;
+    const recap = etat.vue === 'recap';
+    $('#recap').hidden = !recap;
+    for (const x of ['.outils', '#legende', '.corps']) document.querySelector(x).hidden = recap;
+    if (recap) { $('#panneau-selection').hidden = true; dessinerChoix(); dessinerRecap(); return; }
     const nbJ = joursAffiches();
     const dates = Array.from({ length: nbJ }, (_, i) => D.ajout(etat.lundi, i));
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
@@ -432,10 +437,11 @@
       if (a) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     }
     const general = etat.vue === 'general';
-    $('#choix-vue').hidden = general;
+    const avecChoix = etat.vue === 'personne' || etat.vue === 'activite';
+    $('#choix-vue').hidden = !avecChoix;
     $('#btn-selection').hidden = !general;
     if (!general) { $('#panneau-selection').hidden = true; $('#btn-selection').setAttribute('aria-expanded', 'false'); }
-    if (general) return;
+    if (!avecChoix) return;
     const sel = $('#choix'); sel.replaceChildren();
     if (etat.vue === 'personne') {
       $('#choix-libelle').textContent = 'Personne';
@@ -467,6 +473,218 @@
     }
     try { localStorage.setItem('planning_vue', JSON.stringify({ vue: etat.vue, personne: etat.personne, cible: etat.cible })); } catch (e) { /* rien */ }
     dessiner();
+  }
+
+  // Récapitulatifs (lot 5) ---------------------------------------------------------------------
+  // Les données arrivent brutes (jour par jour) ; tout le regroupement se fait ici.
+  const R = {
+    onglet: 'personne', periode: 'mois', debut: null, fin: null, pas: 'semaine', niveau: 'atelier',
+    selection: false, q: '', donnees: null, cle: '', ouverts: new Set(), table: null,
+  };
+  function bornesPeriode(code) {
+    const auj = D.aujourdhui(), l = D.lundiDe(auj), m1 = auj.slice(0, 8) + '01';
+    const finMois = (d) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() + 1, 0); return D.iso(x); };
+    const moisPrec = (() => { const x = new Date(m1 + 'T12:00:00Z'); x.setUTCMonth(x.getUTCMonth() - 1); return D.iso(x); })();
+    return {
+      semaine: [l, D.ajout(l, 6)], semaine_prec: [D.ajout(l, -7), D.ajout(l, -1)],
+      mois: [m1, finMois(m1)], mois_prec: [moisPrec, finMois(moisPrec)],
+      '4sem': [D.ajout(l, -21), D.ajout(l, 6)], annee: [auj.slice(0, 4) + '-01-01', auj],
+    }[code];
+  }
+  const cleDe = (d) => R.pas === 'jour' ? d : R.pas === 'semaine' ? D.lundiDe(d) : d.slice(0, 7);
+  const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  function libelleCle(k) {
+    if (R.pas === 'mois') return MOIS[+k.slice(5, 7) - 1] + ' ' + k.slice(0, 4);
+    if (R.pas === 'semaine') return 'S' + D.numSemaine(k) + ' · ' + D.court(k);
+    return JOURS[D.jourIso(k) - 1] + ' ' + D.court(k);
+  }
+  function cles() {
+    const res = []; for (let d = R.debut; d <= R.fin; d = D.ajout(d, 1)) { const k = cleDe(d); if (res[res.length - 1] !== k) res.push(k); }
+    return res;
+  }
+  const h2 = (x) => x ? heures(x) : '—';
+  const ecart = (x) => { if (Math.abs(x) < 0.125) return el('span', {}, '0 h'); return el('span', { class: x > 0 ? 'ecart-plus' : 'ecart-moins' }, (x > 0 ? '+' : '−') + heures(Math.abs(x))); };
+
+  async function chargerRecap() {
+    const cle = R.debut + '|' + R.fin;
+    if (R.donnees && R.cle === cle) { dessinerRecap(); return; }
+    $('#r-contenu').replaceChildren(el('p', { class: 'vide' }, 'Chargement…'));
+    try { R.donnees = await API.appeler('recap', { debut: R.debut, fin: R.fin }); R.cle = cle; }
+    catch (e) { R.donnees = null; $('#r-contenu').replaceChildren(el('p', { class: 'vide' }, e.message)); return; }
+    dessinerRecap();
+  }
+
+  // Heures de contrat d'un jour : heures hebdo / 5 du lundi au vendredi, pour chaque fiche en vigueur.
+  function contratJour(contrats, d) {
+    if (D.jourIso(d) > 5) return 0;
+    return contrats.reduce((a, c) => a + (c[5] <= d && (!c[6] || c[6] >= d) ? (+c[4] || 0) / 5 : 0), 0);
+  }
+
+  function calculPersonnes() {
+    const x = R.donnees, auj = D.aujourdhui();
+    const gens = new Map();
+    for (const [id, prenom, nom, externe] of x.personnes) gens.set(id, { id, prenom, nom, externe, contrats: [], t: {}, ateliers: new Map(), mad: 0 });
+    for (const c of x.contrats) if (gens.has(c[0])) gens.get(c[0]).contrats.push(c);
+    const bloc = (p, k) => p.t[k] || (p.t[k] = { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 });
+    for (const p of gens.values()) for (let d = R.debut; d <= R.fin; d = D.ajout(d, 1)) { const c = contratJour(p.contrats, d); if (c) bloc(p, cleDe(d)).contrat += c; }
+    for (const [pid, d, at, hh, mad] of x.prevu) {
+      const p = gens.get(pid); if (!p) continue;
+      const b = bloc(p, cleDe(d)); b.prevu += +hh; if (d < auj) b.prevuPasse += +hh;
+      p.ateliers.set(at, (p.ateliers.get(at) || 0) + +hh); if (mad) p.mad += +hh;
+    }
+    for (const [pid, d, type, hh] of x.realise) {
+      const p = gens.get(pid); if (!p) continue;
+      const b = bloc(p, cleDe(d)); b.realise += +hh; if (d < auj) b.realisePasse += +hh;
+      if (type === 'CP') b.cp++; if (type === 'AT') b.at++;
+    }
+    for (const p of gens.values()) {
+      p.tot = Object.values(p.t).reduce((a, b) => { for (const k in b) a[k] = (a[k] || 0) + b[k]; return a; }, { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 });
+    }
+    let liste = [...gens.values()];
+    const q = R.q.trim().toLowerCase();
+    if (q) liste = liste.filter((p) => (p.prenom + ' ' + p.nom).toLowerCase().includes(q));
+    if (R.selection) {
+      const ateliers = ateliersSelectionnes();
+      const societes = new Set(etat.ref.ateliers.filter((a) => ateliers.has(a.id)).map((a) => a.societe));
+      liste = liste.filter((p) => [...p.ateliers.keys()].some((a) => ateliers.has(a)) || p.contrats.some((c) => societes.has(c[2])));
+    }
+    return liste.filter((p) => p.tot.contrat || p.tot.prevu || p.tot.realise || p.tot.cp || p.tot.at);
+  }
+
+  function dessinerRecapPersonnes() {
+    const liste = calculPersonnes();
+    const z = $('#r-contenu'); z.replaceChildren();
+    const lignesCsv = [['Personne', 'Contrat(s)', 'Période', 'Contrat (h)', 'Prévu (h)', 'Réalisé (h)', 'Écart réalisé - prévu, jours écoulés (h)', 'CP (j)', 'AT (j)']];
+    if (!liste.length) { z.append(el('p', { class: 'vide' }, 'Rien sur cette période.')); R.table = lignesCsv; resumeRecap(0, 0, 0); return; }
+    const couleur = (id) => (etat.ref.ateliers.find((a) => a.id === id) || {}).couleur || '#999';
+    const nomAt = (id) => (etat.ref.ateliers.find((a) => a.id === id) || {}).nom || '?';
+    const tb = el('tbody'); const T = { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 };
+    const seul = liste.length === 1;
+    for (const p of liste) {
+      for (const k in T) T[k] += p.tot[k];
+      const texteContrat = p.externe ? 'Externe' : [...new Set(p.contrats.map((c) => c[3] + (c[4] ? ' ' + (+c[4]) + ' h' : '') + ' · ' + c[2]))].join(' + ') || '—';
+      const ouvert = seul || R.ouverts.has(p.id);
+      const total = [...p.ateliers.values()].reduce((a, b) => a + b, 0);
+      const barre = el('div', { class: 'repartition', title: [...p.ateliers].map(([a, hh]) => nomAt(a) + ' ' + heures(hh)).join(' · ') + (p.mad ? ' · dont ' + heures(p.mad) + ' en mise à disposition' : '') },
+        ...[...p.ateliers].sort((a, b) => b[1] - a[1]).map(([a, hh]) => el('span', { style: `width:${(hh / total) * 100}%;background:${couleur(a)}` })));
+      tb.append(el('tr', { class: 'ligne-p' + (ouvert ? ' ouverte' : ''), onclick: () => { R.ouverts.has(p.id) ? R.ouverts.delete(p.id) : R.ouverts.add(p.id); dessinerRecap(); } },
+        el('td', {}, el('span', { class: 'chevron' }, ouvert ? '▾' : '▸'), el('strong', {}, p.prenom + ' ' + p.nom)),
+        el('td', { class: 'sous' }, texteContrat),
+        el('td', { class: 'nb' }, h2(p.tot.contrat)), el('td', { class: 'nb' }, h2(p.tot.prevu)), el('td', { class: 'nb' }, h2(p.tot.realise)),
+        el('td', { class: 'nb' }, ecart(p.tot.realisePasse - p.tot.prevuPasse)),
+        el('td', { class: 'nb' }, p.tot.cp ? String(p.tot.cp) : '—'), el('td', { class: 'nb' }, p.tot.at ? String(p.tot.at) : '—'),
+        el('td', {}, total ? barre : el('span', { class: 'sous' }, '—'))));
+      for (const k of cles()) {
+        const b = p.t[k] || { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 };
+        lignesCsv.push([p.prenom + ' ' + p.nom, texteContrat, libelleCle(k), b.contrat, b.prevu, b.realise, b.realisePasse - b.prevuPasse, b.cp, b.at]);
+        if (!ouvert) continue;
+        tb.append(el('tr', { class: 'sous-ligne' }, el('td', {}, libelleCle(k)), el('td', {}),
+          el('td', { class: 'nb' }, h2(b.contrat)), el('td', { class: 'nb' }, h2(b.prevu)), el('td', { class: 'nb' }, h2(b.realise)),
+          el('td', { class: 'nb' }, b.prevuPasse || b.realisePasse ? ecart(b.realisePasse - b.prevuPasse) : '—'),
+          el('td', { class: 'nb' }, b.cp ? String(b.cp) : '—'), el('td', { class: 'nb' }, b.at ? String(b.at) : '—'), el('td', {})));
+      }
+    }
+    if (liste.length > 1) tb.append(el('tr', { class: 'total' }, el('td', {}, 'Total · ' + liste.length + ' personnes'), el('td', {}),
+      el('td', { class: 'nb' }, h2(T.contrat)), el('td', { class: 'nb' }, h2(T.prevu)), el('td', { class: 'nb' }, h2(T.realise)),
+      el('td', { class: 'nb' }, ecart(T.realisePasse - T.prevuPasse)), el('td', { class: 'nb' }, String(T.cp || '—')), el('td', { class: 'nb' }, String(T.at || '—')), el('td', {})));
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Contrat'),
+      el('th', { class: 'nb' }, 'Contrat'), el('th', { class: 'nb' }, 'Prévu'), el('th', { class: 'nb' }, 'Réalisé'),
+      el('th', { class: 'nb', title: 'Réalisé moins prévu, sur les jours écoulés (jusqu\'à hier)' }, 'Écart *'),
+      el('th', { class: 'nb' }, 'CP (j)'), el('th', { class: 'nb' }, 'AT (j)'), el('th', {}, 'Répartition du prévu'))), tb),
+      el('p', { class: 'note-recap', style: 'padding:8px 10px' }, '* Écart = réalisé − prévu, sur les jours écoulés seulement. Contrat : heures hebdomadaires réparties du lundi au vendredi, selon l\'historique des contrats. Réalisé : heures saisies dans Suivi des temps.'));
+    R.table = lignesCsv;
+    resumeRecap(T.contrat, T.prevu, T.realise);
+  }
+
+  function groupeDe(tacheId) {
+    const t = etat.ref.taches.find((x) => x.id === tacheId); if (!t) return null;
+    const at = etat.ref.ateliers.find((a) => a.id === t.atelier_id);
+    if (R.niveau === 'tache') return { id: 't' + t.id, nom: at.nom + ' › ' + t.nom, couleur: at.couleur };
+    if (R.niveau === 'atelier') return { id: 'at' + at.id, nom: at.nom, couleur: at.couleur };
+    if (R.niveau === 'activite') { const ac = etat.ref.activites.find((a) => a.id === at.activite_id); return { id: 'a' + ac.id, nom: ac.nom, couleur: null }; }
+    const rg = etat.ref.regroupements.find((r) => r.id === t.regroupement_id);
+    return rg ? { id: 'r' + rg.id, nom: rg.nom, couleur: null } : { id: 'r0', nom: 'Sans regroupement', couleur: null };
+  }
+
+  function dessinerRecapActivite() {
+    const z = $('#r-contenu'); z.replaceChildren();
+    const colonnes = cles();
+    const groupes = new Map(); const totCol = {}; let total = 0, nbSeances = 0;
+    for (const [d, tid, mo, n] of R.donnees.mo) {
+      if (R.selection && !etat.selection.has(tid)) continue;
+      const g = groupeDe(tid); if (!g) continue;
+      if (!groupes.has(g.id)) groupes.set(g.id, Object.assign(g, { v: {}, tot: 0, n: 0 }));
+      const x = groupes.get(g.id), k = cleDe(d);
+      x.v[k] = (x.v[k] || 0) + +mo; x.tot += +mo; x.n += n; totCol[k] = (totCol[k] || 0) + +mo; total += +mo; nbSeances += n;
+    }
+    const lignesCsv = [['Groupe', ...colonnes.map(libelleCle), 'Total (h)', 'Séances']];
+    if (!groupes.size) { z.append(el('p', { class: 'vide' }, 'Aucune séance prévue sur cette période' + (R.selection ? ' dans la sélection.' : '.'))); R.table = lignesCsv; resumeRecap(null, total, null, nbSeances); return; }
+    const tb = el('tbody');
+    for (const g of [...groupes.values()].sort((a, b) => b.tot - a.tot)) {
+      tb.append(el('tr', {}, el('td', {}, el('span', { class: 'tache-nom' }, g.couleur ? el('span', { class: 'pastille', style: 'background:' + g.couleur }) : null, g.nom)),
+        ...colonnes.map((k) => el('td', { class: 'nb' }, h2(g.v[k]))), el('td', { class: 'nb' }, el('strong', {}, heures(g.tot))), el('td', { class: 'nb' }, String(g.n))));
+      lignesCsv.push([g.nom, ...colonnes.map((k) => g.v[k] || 0), g.tot, g.n]);
+    }
+    tb.append(el('tr', { class: 'total' }, el('td', {}, 'Total'), ...colonnes.map((k) => el('td', { class: 'nb' }, h2(totCol[k]))), el('td', { class: 'nb' }, heures(total)), el('td', { class: 'nb' }, String(nbSeances))));
+    lignesCsv.push(['Total', ...colonnes.map((k) => totCol[k] || 0), total, nbSeances]);
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, { activite: 'Activité', atelier: 'Atelier', tache: 'Tâche', regroupement: 'Regroupement' }[R.niveau]),
+      ...colonnes.map((k) => el('th', { class: 'nb' }, libelleCle(k))), el('th', { class: 'nb' }, 'Total'), el('th', { class: 'nb' }, 'Séances'))), tb),
+      el('p', { class: 'note-recap', style: 'padding:8px 10px' }, 'Main-d\'œuvre prévue = durée × nombre de personnes, séances suspendues exclues.'));
+    R.table = lignesCsv;
+    resumeRecap(null, total, null, nbSeances);
+  }
+
+  function resumeRecap(contrat, prevu, realise, nbSeances) {
+    const r = $('#r-resume'); r.replaceChildren(el('h2', {}, 'Du ' + D.long(R.debut) + ' au ' + D.long(R.fin)));
+    const c = (lib, v) => r.append(el('span', { class: 'chiffre-r' }, lib + ' ', el('strong', {}, v)));
+    if (R.onglet === 'personne') { c('Contrat', heures(contrat)); c('Prévu', heures(prevu)); c('Réalisé', heures(realise)); }
+    else { c('Main-d\'œuvre prévue', heures(prevu)); c('Séances', String(nbSeances || 0)); }
+  }
+
+  function dessinerRecap() {
+    const collab = etat.droits.niveau === 'collaborateur';
+    if (collab) R.onglet = 'personne';
+    $('#r-onglet-activite').hidden = collab;
+    for (const b of document.querySelectorAll('[data-recap]')) b.classList.toggle('actif', b.dataset.recap === R.onglet);
+    $('#r-periode').value = R.periode; $('#r-debut').value = R.debut; $('#r-fin').value = R.fin;
+    $('#r-pas').value = R.pas; $('#r-niveau').value = R.niveau; $('#r-selection').checked = R.selection;
+    $('#r-niveau-l').hidden = R.onglet !== 'activite';
+    $('#r-recherche').hidden = R.onglet !== 'personne' || collab;
+    $('#r-selection').parentElement.hidden = collab;
+    if (!R.donnees || R.cle !== R.debut + '|' + R.fin) { chargerRecap(); return; }
+    if (R.onglet === 'activite') dessinerRecapActivite(); else dessinerRecapPersonnes();
+  }
+
+  function garderRecap() {
+    try { localStorage.setItem('planning_recap', JSON.stringify({ onglet: R.onglet, periode: R.periode, debut: R.debut, fin: R.fin, pas: R.pas, niveau: R.niveau, selection: R.selection })); } catch (e) { /* rien */ }
+  }
+  function initRecap() {
+    try { Object.assign(R, JSON.parse(localStorage.getItem('planning_recap') || '{}')); } catch (e) { /* rien */ }
+    if (R.periode !== 'perso' || !R.debut || !R.fin) { const b = bornesPeriode(R.periode === 'perso' ? 'mois' : R.periode); R.debut = b[0]; R.fin = b[1]; }
+  }
+  function exporterCsv() {
+    if (!R.table) return;
+    const cell = (v) => typeof v === 'number' ? String(Math.round(v * 100) / 100).replace('.', ',') : '"' + String(v).replace(/"/g, '""') + '"';
+    const texte = '﻿' + R.table.map((l) => l.map(cell).join(';')).join('\r\n');
+    const a = el('a', { href: URL.createObjectURL(new Blob([texte], { type: 'text/csv;charset=utf-8' })),
+      download: 'recap-' + (R.onglet === 'activite' ? 'activite' : 'personnes') + '-' + R.debut + '-' + R.fin + '.csv' });
+    document.body.append(a); a.click(); a.remove();
+  }
+  function brancherRecap() {
+    for (const b of document.querySelectorAll('[data-recap]')) b.onclick = () => { R.onglet = b.dataset.recap; garderRecap(); dessinerRecap(); };
+    $('#r-periode').onchange = (e) => { R.periode = e.target.value; if (R.periode !== 'perso') { [R.debut, R.fin] = bornesPeriode(R.periode); } garderRecap(); dessinerRecap(); };
+    const dates = () => {
+      const d = $('#r-debut').value, f = $('#r-fin').value; if (!d || !f) return;
+      if (f < d) { dire('La fin de la période doit être après son début.', true); return; }
+      R.debut = d; R.fin = f; R.periode = 'perso'; garderRecap(); dessinerRecap();
+    };
+    $('#r-debut').onchange = dates; $('#r-fin').onchange = dates;
+    $('#r-pas').onchange = (e) => { R.pas = e.target.value; garderRecap(); dessinerRecap(); };
+    $('#r-niveau').onchange = (e) => { R.niveau = e.target.value; garderRecap(); dessinerRecap(); };
+    $('#r-selection').onchange = (e) => { R.selection = e.target.checked; garderRecap(); dessinerRecap(); };
+    $('#r-recherche').oninput = (e) => { R.q = e.target.value; dessinerRecap(); };
+    $('#r-csv').onclick = exporterCsv;
+    $('#r-imprimer').onclick = () => window.print();
   }
 
   // Personnes ------------------------------------------------------------------------------
@@ -661,6 +879,7 @@
     for (const b of document.querySelectorAll('[data-vue]')) b.onclick = () => changerVue(b.dataset.vue);
     $('#choix').onchange = (e) => { if (e.target.value) changerVue(etat.vue, e.target.value); };
     brancherVolet();
+    brancherRecap();
     $('#btn-nouvelle').onclick = () => ouvrirNouvelle();
     $('#f-recurrente').onchange = (e) => { $('#f-recurrence').hidden = !e.target.checked; };
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue !== 'ok') return; if (enEdition) validerModification(enEdition); else validerNouvelle(); });
