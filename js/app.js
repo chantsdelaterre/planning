@@ -573,8 +573,9 @@
     remplirHeure($('#f-debut'), modele ? court5(modele.heure_debut) : '09:00'); remplirHeure($('#f-fin'), modele ? court5(modele.heure_fin) : '12:00');
     $('#f-titre').value = modele ? modele.complement || '' : ''; $('#f-lieu').value = modele ? modele.lieu || '' : ''; $('#f-recurrente').checked = enSerie; $('#f-recurrente').disabled = enSerie; $('#f-recurrence').hidden = !enSerie;
     $('#f-date-fin').value = enSerie ? modele.serie_fin || '' : '';
+    $('#f-intervalle').value = String(enSerie ? modele.serie_intervalle || 1 : 1);
     const ri = $('#f-rep-info'); ri.hidden = !enSerie;
-    ri.textContent = 'Changer les jours ou la fin s\'applique à cette séance et aux suivantes. Pour arrêter la série : « Arrêter la série ici ».';
+    ri.textContent = 'Changer le rythme, les jours ou la fin s\'applique à cette séance et aux suivantes. Pour arrêter la série : « Arrêter la série ici ».';
     const j = $('#f-jours'); j.replaceChildren();
     JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: enSerie ? modele.serie_jours.includes(i + 1) : i + 1 === D.jourIso(date) }), n)));
     const fp = $('#f-personnes'); fp.replaceChildren();
@@ -621,10 +622,11 @@
     if ($('#f-recurrente').checked) {
       if (!jours.length) { dire('Choisis au moins un jour.', true); return; }
       if (finSerie && finSerie < q.date) { dire('La fin de la série doit être après la date de la séance.', true); return; }
-      const avant = s.serie_id ? s.serie_jours.join(',') + '|' + (s.serie_fin || '') : '';
-      if (!s.serie_id || jours.join(',') + '|' + (finSerie || '') !== avant) {
-        // Nouvelle série, ou jours / fin changés : vaut pour cette séance et les suivantes.
-        Object.assign(q, { jours, date_fin_serie: finSerie }); portee = 'suivantes';
+      const intervalle = +$('#f-intervalle').value;
+      const avant = s.serie_id ? s.serie_jours.join(',') + '|' + (s.serie_fin || '') + '|' + (s.serie_intervalle || 1) : '';
+      if (!s.serie_id || jours.join(',') + '|' + (finSerie || '') + '|' + intervalle !== avant) {
+        // Nouvelle série, ou rythme / jours / fin changés : vaut pour cette séance et les suivantes.
+        Object.assign(q, { jours, date_fin_serie: finSerie, intervalle }); portee = 'suivantes';
       }
     }
     if (!portee) portee = s.serie_id ? await demanderPortee(`${nomT} : ${D.long(q.date)}, ${debut}–${fin}`) : 'seance';
@@ -640,7 +642,7 @@
     if ($('#f-recurrente').checked) {
       const jours = [...$('#f-jours').querySelectorAll('input:checked')].map((c) => +c.value);
       if (!jours.length) { dire('Choisis au moins un jour.', true); return; }
-      await agir('serie_creer', Object.assign(commun, { jours, date_debut: $('#f-date').value, date_fin: $('#f-date-fin').value || null }), 'Série créée.');
+      await agir('serie_creer', Object.assign(commun, { jours, intervalle: +$('#f-intervalle').value, date_debut: $('#f-date').value, date_fin: $('#f-date-fin').value || null }), 'Série créée.');
     } else {
       await agir('seance_creer', Object.assign(commun, { date: $('#f-date').value }), 'Séance créée.');
     }

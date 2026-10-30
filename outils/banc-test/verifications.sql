@@ -450,3 +450,33 @@ begin
   delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 15 : réussie';
+
+-- 16. Séries toutes les 2 semaines : création, modification « et les suivantes » qui garde le rythme.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; s bigint; x bigint; lundi date := date_trunc('week', current_date)::date + 7; r jsonb; n int;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  set local role service_role;
+  r := public.planning_appel(adm, 'serie_creer', jsonb_build_object('tache_id', t, 'jours', jsonb_build_array(2), 'intervalle', 2, 'debut', '09:00', 'fin', '10:00', 'date_debut', lundi, 'date_fin', lundi + 41));
+  s := (r->>'serie_id')::bigint;
+  -- 6 semaines, un mardi sur deux : semaines 0, 2, 4.
+  if (select array_agg(date_seance - lundi order by date_seance) from planning.seance where serie_id = s) <> array[1, 15, 29] then
+    raise exception 'ÉCHEC : dates %', (select array_agg(date_seance - lundi order by date_seance) from planning.seance where serie_id = s); end if;
+  -- Depuis la 2e séance : passage à 9 h 30, et les suivantes. Le rythme reste (semaines 2 et 4).
+  select id into x from planning.seance where serie_id = s and date_serie = lundi + 15;
+  r := public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'debut', '09:30', 'fin', '10:30', 'portee', 'suivantes'));
+  if (select array_agg(date_seance - lundi order by date_seance) from planning.seance where tache_id = t and supprimee_le is null) <> array[1, 15, 29] then raise exception 'ÉCHEC : rythme perdu'; end if;
+  -- Repasser à toutes les semaines depuis la 2e séance.
+  select id into x from planning.seance where tache_id = t and date_seance = lundi + 15 and supprimee_le is null;
+  r := public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'intervalle', 1, 'portee', 'seance'));
+  select count(*) into n from planning.seance where tache_id = t and supprimee_le is null;
+  if n <> 5 then raise exception 'ÉCHEC : % séances au lieu de 5 (1 + semaines 2 à 5)', n; end if;
+  -- Une séance isolée devient une série toutes les 3 semaines.
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', lundi + 4, 'debut', '14:00', 'fin', '15:00'));
+  r := public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', (r->>'seance_id')::bigint, 'jours', jsonb_build_array(5), 'intervalle', 3, 'date_fin_serie', lundi + 48));
+  if (select array_agg(date_seance - lundi order by date_seance) from planning.seance where serie_id = (r->>'serie_id')::bigint) <> array[4, 25, 46] then raise exception 'ÉCHEC : toutes les 3 semaines'; end if;
+  reset role;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 16 : réussie';
