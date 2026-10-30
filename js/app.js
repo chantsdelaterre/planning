@@ -920,13 +920,41 @@
       const defaut = [...new Set(hab.concat(resp))].map((id) => nomEl('atelier', id) + (resp.includes(id) ? ' (resp.)' : ''));
       const tout = (d.acces_tout || []).includes(p.id);
       const plus = (d.acces_elements || []).filter((e) => e[0] === p.id).map((e) => nomEl(e[1], e[2]));
+      const lien = (d.liens || []).find((l) => l.personne_id === p.id);
+      const dt = (x) => x ? D.court(x.slice(0, 10)) : '';
+      const celLien = el('td', {},
+        lien ? el('div', { class: 'lien-etat' + (lien.valide ? '' : ' mort') }, 'créé le ' + dt(lien.cree_le) + (lien.dernier_usage ? ' · utilisé le ' + dt(lien.dernier_usage) : ' · jamais utilisé') + (lien.valide ? '' : ' · inactif'))
+             : el('div', { class: 'lien-etat' }, 'aucun'),
+        lectureSeule() ? null : el('div', { class: 'ref-ligne' },
+          el('button', { type: 'button', class: 'bouton mini', onclick: () => creerLien(p, !!lien) }, lien ? 'Nouveau lien' : 'Créer le lien'),
+          lien ? el('button', { type: 'button', class: 'bouton mini danger', onclick: () => { if (confirm('Révoquer le lien planning de ' + p.prenom + ' ? Il cessera aussitôt de fonctionner.')) adminAgir('lien_revoquer', { personne_id: p.id }, 'Lien révoqué.'); } }, 'Révoquer') : null));
       tb.append(el('tr', {},
         el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, (p.societes || []).join(' + '))),
         el('td', { class: 'acces-defaut' }, defaut.length ? defaut.join(', ') : el('span', { class: 'sous' }, 'ses séances seulement')),
         el('td', { class: 'acces-defaut' }, tout ? el('strong', {}, 'Tout le planning') : plus.length ? plus.join(', ') : '—'),
-        el('td', {}, lectureSeule() ? null : el('button', { type: 'button', class: 'bouton mini', onclick: () => ouvrirAcces(p) }, 'Modifier'))));
+        el('td', {}, lectureSeule() ? null : el('button', { type: 'button', class: 'bouton mini', onclick: () => ouvrirAcces(p) }, 'Modifier')), celLien));
     }
-    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Voit d\'office (ateliers habituels, responsable)'), el('th', {}, 'Ouvert en plus'), el('th', {}, ''))), tb));
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Voit d\'office (ateliers habituels, responsable)'), el('th', {}, 'Ouvert en plus'), el('th', {}, ''), el('th', {}, 'Lien planning'))), tb));
+  }
+  // Liens planning : le jeton n'est rendu qu'à la création, affiché une fois.
+  async function creerLien(p, remplace) {
+    if (remplace && !confirm('Créer un nouveau lien pour ' + p.prenom + ' ? L\'ancien cessera de fonctionner.')) return;
+    let r;
+    try { r = await API.appeler('lien_generer', { personne_id: p.id }); } catch (e) { dire(e.message, true); return; }
+    const url = location.origin + location.pathname + '?lien=' + r.jeton;
+    $('#dlg-lien-titre').textContent = 'Lien planning de ' + p.prenom + ' ' + p.nom;
+    $('#fl-url').value = url;
+    $('#fl-copier').onclick = async () => {
+      try { await navigator.clipboard.writeText(url); dire('Lien copié.'); } catch (e) { $('#fl-url').select(); document.execCommand('copy'); dire('Lien copié.'); }
+    };
+    $('#fl-mail').onclick = () => {
+      const sujet = 'Ton accès au planning';
+      const corps = 'Bonjour ' + p.prenom + ',\n\nVoici ton lien personnel vers le planning de travail :\n' + url +
+        '\n\nOuvre-le une première fois sur ton ordinateur : ensuite, l\'adresse du planning suffit sur ce poste.\nCe lien est personnel, ne le transmets pas.\n';
+      location.href = 'mailto:?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
+    };
+    $('#dlg-lien').showModal();
+    rechargerAdmin();
   }
   let accesEdite = null;
   function ouvrirAcces(p) {

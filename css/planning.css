@@ -336,3 +336,7 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .dialogue #fa-arbre label { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; font-weight: 400; padding: 2px 0; }
 .dialogue #fa-arbre .sel-carte > label { font-size: 14px; font-weight: 600; padding: 2px 0 4px; }
 .dialogue #fa-arbre input { min-height: 0; width: 15px; height: 15px; }
+
+.champ-lien { width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.lien-etat { font-size: 12px; color: var(--discret); }
+.lien-etat.mort { color: var(--rouge); }

@@ -18,7 +18,7 @@ const ACTIONS = new Set([
   "session", "semaine", "recap", "realise", "seance_creer", "seance_modifier", "seance_supprimer", "serie_creer", "serie_arreter",
   "affecter", "retirer", "suspendre", "reprendre", "jour_fermer",
   "admin_lire", "personne_creer", "personne_modifier", "personne_archiver", "personne_rattacher",
-  "ref_enregistrer", "ref_archiver", "responsable", "habituel", "acces_regler",
+  "ref_enregistrer", "ref_archiver", "responsable", "habituel", "acces_regler", "lien_generer", "lien_revoquer",
 ]);
 
 Deno.serve(async (req) => {
@@ -37,7 +37,12 @@ Deno.serve(async (req) => {
   let identite: Record<string, unknown> | null = null;
   const jetonAdmin = String(corps?.jeton_admin ?? "").trim();
   const jeton = String(corps?.jeton ?? "").trim();
-  if (jetonAdmin) {
+  const lien = String(corps?.lien ?? "").trim();
+  if (lien) {
+    // Lien propre au planning : vérifié (empreinte, révocation, fiche active) dans la base.
+    if (!/^[0-9a-f]{64}$/.test(lien)) return json({ ok: false, error: "lien_invalide" }, 401);
+    identite = { type: "lien", jeton: lien };
+  } else if (jetonAdmin) {
     const { data, error } = await sb.from("admins").select("admin_id").eq("token", jetonAdmin).eq("actif", true).maybeSingle();
     if (error) return json({ ok: false, error: "Erreur base (admin)" }, 500);
     if (data) identite = { type: "admin", admin_id: data.admin_id };

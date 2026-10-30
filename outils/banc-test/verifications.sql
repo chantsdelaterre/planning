@@ -652,3 +652,38 @@ begin
   delete from planning.atelier_responsable; delete from planning.acces_personne; delete from planning.acces_element;
 end $$;
 select 'Vérification 21 : réussie';
+
+-- 22. Liens planning : création, usage, révocation ; mort dès que la fiche est désactivée.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; anna bigint; jeton text; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  r := public.planning_appel(adm, 'lien_generer', jsonb_build_object('personne_id', anna));
+  jeton := r->>'jeton';
+  if length(jeton) <> 64 then raise exception 'ÉCHEC : jeton trop court'; end if;
+  if exists (select 1 from planning.lien where empreinte = jeton) then raise exception 'ÉCHEC : jeton stocké en clair'; end if;
+  r := public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}');
+  if (r->'droits'->>'personne_id')::bigint <> anna then raise exception 'ÉCHEC : identité du lien'; end if;
+  if (select dernier_usage from planning.lien where personne_id = anna and revoque_le is null) is null then raise exception 'ÉCHEC : dernier usage'; end if;
+  -- Un lien ne donne pas plus qu'un collaborateur : pas d'administration.
+  begin perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'admin_lire', '{}'); raise exception 'ÉCHEC : lien admin';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  -- Fiche désactivée : lien mort.
+  reset role; update public.collaborateurs set actif = false where collab_id = 'T001'; set local role service_role;
+  begin perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}'); raise exception 'ÉCHEC : lien d''une fiche désactivée';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; if sqlerrm <> 'lien_invalide' then raise exception 'ÉCHEC : message %', sqlerrm; end if; end;
+  reset role; update public.collaborateurs set actif = true where collab_id = 'T001'; set local role service_role;
+  perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}');
+  -- Régénérer : l'ancien meurt.
+  perform public.planning_appel(adm, 'lien_generer', jsonb_build_object('personne_id', anna));
+  begin perform public.planning_appel(jsonb_build_object('type', 'lien', 'jeton', jeton), 'session', '{}'); raise exception 'ÉCHEC : ancien lien encore valide';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  if jsonb_array_length(public.planning_appel(adm, 'admin_lire', '{}')->'liens') <> 1 then raise exception 'ÉCHEC : liste des liens'; end if;
+  perform public.planning_appel(adm, 'lien_revoquer', jsonb_build_object('personne_id', anna));
+  if jsonb_array_length(public.planning_appel(adm, 'admin_lire', '{}')->'liens') <> 0 then raise exception 'ÉCHEC : révocation'; end if;
+  reset role;
+  delete from planning.lien; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 22 : réussie';

@@ -187,6 +187,19 @@
   </form>
 </dialog>
 
+<dialog id="dlg-lien" class="dialogue">
+  <form method="dialog">
+    <h2 id="dlg-lien-titre">Lien planning</h2>
+    <p class="sous">Ce lien n'ouvre que le planning, avec les droits de cette personne. Il ne s'affiche qu'<strong>une fois</strong> : copie-le ou envoie-le maintenant. Pour le renvoyer plus tard, il faudra en créer un nouveau (l'ancien cessera de marcher). Il s'arrête tout seul si la fiche est désactivée dans Suivi des temps.</p>
+    <input type="text" id="fl-url" readonly aria-label="Lien" class="champ-lien">
+    <div class="boutons">
+      <button type="button" class="bouton principal" id="fl-copier">Copier le lien</button>
+      <button type="button" class="bouton" id="fl-mail">Envoyer par e-mail</button>
+    </div>
+    <div class="pied"><button value="ok" class="bouton">Fermer</button></div>
+  </form>
+</dialog>
+
 <dialog id="dlg-portee" class="dialogue petit">
   <form method="dialog">
     <h2>Appliquer la modification à…</h2>
