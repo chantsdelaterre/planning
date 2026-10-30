@@ -584,3 +584,27 @@ begin
   delete from planning.atelier_responsable; delete from planning.personne_atelier; delete from planning.tache where id = x;
 end $$;
 select 'Vérification 18-19 : réussie';
+
+-- 20. Créneaux réalisés d'une personne pour une semaine ; un collaborateur ne lit que les siens.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; anna bigint; chloe bigint; lundi date := date_trunc('week', current_date)::date; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'consultation');
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  insert into public.jours (jour_id, collab_id, date_jour, type_jour, c1_debut, c1_fin, c2_debut, c2_fin, c3_debut, c3_fin, total_heures) values
+    ('R1', 'T001', lundi, 'travaillée', '08:00', '12:00', '13:30', '17:00', '', '', 7.5),
+    ('R2', 'T001', lundi + 1, 'CP', null, null, null, null, null, null, 0);
+  set local role service_role;
+  r := public.planning_appel(adm, 'realise', jsonb_build_object('personne_id', anna, 'lundi', lundi));
+  if jsonb_array_length(r->'jours') <> 2 then raise exception 'ÉCHEC : % jours', jsonb_array_length(r->'jours'); end if;
+  if r->'jours'->0->'creneaux' <> '[["08:00","12:00"],["13:30","17:00"]]'::jsonb then raise exception 'ÉCHEC : créneaux %', r->'jours'->0->'creneaux'; end if;
+  begin
+    perform public.planning_appel(jsonb_build_object('type', 'collab', 'personne_id', anna), 'realise', jsonb_build_object('personne_id', chloe, 'lundi', lundi));
+    raise exception 'ÉCHEC : un collaborateur lit les heures d''un autre';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  r := public.planning_appel(jsonb_build_object('type', 'collab', 'personne_id', anna), 'realise', jsonb_build_object('personne_id', anna, 'lundi', lundi));
+  reset role;
+  delete from public.jours; delete from planning.acces_admin;
+end $$;
+select 'Vérification 20 : réussie';

@@ -42,7 +42,7 @@
   const etat = {
     droits: null, ref: null, lundi: D.lundiDe(D.aujourdhui()), sem: null,
     selection: null, dimanche: false, choisie: null, recherche: '', toutLeMonde: false,
-    vue: 'general', personne: null, cible: null,  // cible (vue par activité) : 'a:3', 'at:2', 't:10', 'r:4'
+    vue: 'general', personne: null, cible: null, realise: null,  // cible (vue par activité) : 'a:3', 'at:2', 't:10', 'r:4'
   };
   const peutEcrire = () => ['complet', 'responsable'].includes(etat.droits.niveau);
   const peutAtelier = (id) => peutEcrire() && etat.droits.ateliers.includes(id);
@@ -170,6 +170,33 @@
     dessiner();
   }
 
+  // Réalisé (Suivi des temps) de la personne affichée, pour la semaine affichée.
+  let realiseEnCours = null;
+  function realiseAJour() { return etat.realise && etat.realise.cle === etat.personne + '|' + etat.lundi; }
+  async function chargerRealise() {
+    const cle = etat.personne + '|' + etat.lundi;
+    if (realiseEnCours === cle) return;
+    realiseEnCours = cle;
+    try { const r = await API.appeler('realise', { personne_id: etat.personne, lundi: etat.lundi }); etat.realise = Object.assign(r, { cle }); }
+    catch (e) { etat.realise = { cle, jours: [], erreur: e.message }; }
+    realiseEnCours = null;
+    if (etat.vue === 'personne') dessiner();
+  }
+  // Par date : créneaux en minutes, type de jour, heures saisies (toutes fiches réunies).
+  function realiseParDate() {
+    const m = new Map();
+    for (const j of (realiseAJour() ? etat.realise.jours : [])) {
+      const x = m.get(j.date) || { creneaux: [], heures: 0, types: new Set() };
+      x.creneaux.push(...j.creneaux.map(([a, b]) => [min(a), min(b)]).filter(([a, b]) => b > a));
+      x.heures += +j.heures || 0; x.types.add(j.type); m.set(j.date, x);
+    }
+    for (const x of m.values()) x.saisi = x.heures > 0 || x.types.has('CP') || x.types.has('AT');
+    return m;
+  }
+  // Minutes d'une séance couvertes par les créneaux réels du jour.
+  const couvert = (s, cr) => cr.reduce((a, [d, f]) => a + Math.max(0, Math.min(f, min(s.heure_fin)) - Math.max(d, min(s.heure_debut))), 0);
+  const dernierSaisi = (rp) => [...rp].filter(([d, x]) => x.saisi && d <= D.aujourdhui()).map(([d]) => d).sort().pop() || null;
+
   // Grille ---------------------------------------------------------------------------------
   const tachesCible = () => {
     const [k, v] = (etat.cible || '').split(':'); const id = +v;
@@ -184,6 +211,7 @@
     const liste = { a: etat.ref.activites, at: etat.ref.ateliers, t: etat.ref.taches, r: etat.ref.regroupements }[k] || [];
     const x = liste.find((o) => o.id === id); return x ? x.nom : '';
   };
+  const ecartJour = (x) => Math.abs(x) < 0.125 ? el('span', { class: 'ecart-nul' }, '= ') : el('span', { class: x > 0 ? 'ecart-plus' : 'ecart-moins' }, (x > 0 ? '+' : '−') + heures(Math.abs(x)));
   const avecPersonne = (s, pid) => s.personnes.some((p) => p.personne_id === pid);
   const visible = (s) => etat.vue === 'personne' ? avecPersonne(s, etat.personne)
     : etat.vue === 'activite' ? tachesCible().includes(s.tache_id)
@@ -242,7 +270,11 @@
       if (!s.trace) blocs.push({ s, date: s.date_seance, trace: false });
       if (s.deplacee && s.date_serie >= etat.lundi && s.date_serie <= D.ajout(etat.lundi, 6)) blocs.push({ s, date: s.date_serie, trace: true });
     }
-    const [hMin, hMax] = bornes(seances);
+    const enPersonne = etat.vue === 'personne' && etat.personne;
+    if (enPersonne && !realiseAJour()) chargerRealise();
+    const rp = enPersonne ? realiseParDate() : new Map();
+    const fin = enPersonne ? dernierSaisi(rp) : null;
+    const [hMin, hMax] = bornes(seances.concat([...rp.values()].flatMap((x) => x.creneaux.map(([a, b]) => ({ heure_debut: hhmm(a), heure_fin: hhmm(b) })))));
     const pxMin = pixelsParMinute(hMax - hMin);
     const hauteur = (hMax - hMin) * pxMin;
 
@@ -253,9 +285,18 @@
     for (const [i, d] of dates.entries()) {
       const f = fermes.find((x) => x.date === d);
       const mo = seances.filter((s) => !s.trace && s.date_seance === d).reduce((a, s) => a + heuresVue(s), 0);
+      const r = rp.get(d);
+      let ligneR = null;
+      if (enPersonne) {
+        if (r && r.saisi) {
+          const t = [...r.types].find((x) => x === 'CP' || x === 'AT');
+          ligneR = el('div', { class: 'mo mono' }, 'R ' + heures(r.heures) + (t ? ' · ' + t : ''), ' ', ecartJour(r.heures - mo));
+        } else if (d <= D.aujourdhui() && realiseAJour() && mo > 0) ligneR = el('div', { class: 'mo non-saisi' }, d === D.aujourdhui() ? 'pas encore saisi' : 'non saisi');
+      }
       g.append(el('div', { class: 'entete-jour' + (f ? ' ferme' : '') },
         el('div', {}, el('span', { class: 'nom' }, JOURS[i]), ' ', el('span', { class: 'sous' }, D.court(d))),
-        el('div', { class: 'mo mono' }, f ? '0 h · fermé' : heures(mo) + (etat.vue === 'personne' ? '' : ' de MO')),
+        el('div', { class: 'mo mono' }, f ? '0 h · fermé' : (enPersonne ? 'P ' : '') + heures(mo) + (etat.vue === 'personne' ? '' : ' de MO')),
+        ligneR,
         f ? el('div', { class: 'badge-ferme' }, (f.societe ? f.societe + ' · ' : '') + (f.motif || 'Fermé')) : null));
     }
     const colH = el('div', { class: 'col-heures', style: 'height:' + hauteur + 'px' });
@@ -266,8 +307,24 @@
       const f = fermes.find((x) => x.date === d && !x.societe);
       const col = el('div', { class: 'col-jour' + (f ? ' ferme' : ''), style: 'height:' + hauteur + 'px', 'data-date': d });
       for (let m = hMin + 15; m < hMax; m += 15) col.append(el('div', { class: 'ligne-heure' + (m % 60 === 0 ? '' : m % 30 === 0 ? ' demi' : ' quart'), style: 'top:' + (m - hMin) * pxMin + 'px' }));
+      const r = rp.get(d);
       for (const c of couloirs(blocs.filter((b) => b.date === d).map((b) => Object.assign({}, b.s, { _trace: b.trace })))) {
-        col.append(blocSeance(c.s, c.couloir, c.nb, hMin, pxMin));
+        const bloc = blocSeance(c.s, c.couloir, c.nb, hMin, pxMin, enPersonne ? 0 : 0, enPersonne ? 56 : 100);
+        if (enPersonne && r && r.saisi && !c.s._trace && c.s.statut === 'prevue') {
+          const cv = couvert(c.s, r.creneaux) / 60, ec = cv - c.s.duree_h;
+          const ligne = el('span', { class: 'reel' + (Math.abs(ec) >= 0.25 ? ' ecart' : ''), title: 'Réalisé pendant la séance : ' + heures(cv) }, 'réel ' + heures(cv) + (Math.abs(ec) >= 0.25 ? ' · ' + (ec > 0 ? '+' : '−') + heures(Math.abs(ec)) : ' ✓'));
+          const hEl = bloc.querySelector('.h'); hEl ? hEl.after(ligne) : bloc.append(ligne);
+        }
+        col.append(bloc);
+      }
+      if (enPersonne) {
+        col.append(el('div', { class: 'separation-pr' }));
+        if (r) for (const [a, b] of r.creneaux) {
+          const h = (b - a) * pxMin;
+          col.append(el('div', { class: 'realise', style: `top:${(a - hMin) * pxMin + 1}px;height:${Math.max(h - 2, 16)}px`, title: 'Réalisé ' + hhmm(a) + '–' + hhmm(b) },
+            el('span', { class: 'h' }, hhmm(a) + '–' + hhmm(b)), h >= 40 ? el('span', { class: 'p' }, heures((b - a) / 60)) : null));
+        }
+        if (r && !r.creneaux.length && (r.types.has('CP') || r.types.has('AT'))) col.append(el('div', { class: 'realise absence', style: 'top:4px;bottom:4px' }, [...r.types].filter((t) => t !== 'travaillée').join(' ')));
       }
       if (peutEcrire()) brancherDepot(col, hMin, pxMin);
       g.append(col);
@@ -277,7 +334,7 @@
     dessinerDetail();
   }
 
-  function blocSeance(s, couloir, nb, hMin, pxMin) {
+  function blocSeance(s, couloir, nb, hMin, pxMin, x0 = 0, w = 100) {
     const trace = s._trace;
     const conflit = !trace && s.chevauchements && s.chevauchements.length > 0;
     const haut = (min(s.heure_debut) - hMin) * pxMin;
@@ -291,7 +348,7 @@
     else if (s.deplacee) etiq = el('span', { class: 'etiquette' }, 'Déplacée du ' + D.court(s.date_serie));
     const b = el('button', {
       class: classes, type: 'button',
-      style: `top:${haut + 1}px;height:${Math.max(h - 2, 18)}px;left:calc(${(couloir * 100) / nb}% + 3px);width:calc(${100 / nb}% - 6px);background:${teinte(s.couleur, 0.16)};border-color:${s.couleur};color:#1B211E`,
+      style: `top:${haut + 1}px;height:${Math.max(h - 2, 18)}px;left:calc(${x0 + (couloir * w) / nb}% + 3px);width:calc(${w / nb}% - 6px);background:${teinte(s.couleur, 0.16)};border-color:${s.couleur};color:#1B211E`,
       'aria-label': `${nomSeance(s)}, ${D.long(trace ? s.date_serie : s.date_seance)}, ${court5(s.heure_debut)} à ${court5(s.heure_fin)}, ${s.personnes.map(nomP).join(', ') || 'personne'}`,
       draggable: modifiable ? 'true' : null,
       'data-seance': s.id,
@@ -379,7 +436,14 @@
       const p = personneCourante();
       const ref = p ? p.fiches.reduce((a, f) => a + (+f.heures_hebdo || 0), 0) : 0;
       const mad = reelles.filter((s) => s.statut === 'prevue' && s.personnes.some((x) => x.personne_id === etat.personne && x.mad)).reduce((a, s) => a + s.duree_h, 0);
-      lg.append(el('span', { class: 'total' }, el('strong', {}, heures(total)), ' prévues' + (ref ? ' · contrat ' + heures(ref) : '') + (mad ? ' · dont ' + heures(mad) + ' en mise à disposition' : '')));
+      const rp = realiseParDate(), fin = dernierSaisi(rp);
+      let reel = null;
+      if (realiseAJour() && fin) {
+        const prevuAuFin = reelles.filter((s) => s.statut === 'prevue' && s.date_seance <= fin).reduce((a, s) => a + s.duree_h, 0);
+        const realiseAuFin = [...rp].filter(([d]) => d <= fin).reduce((a, [, x]) => a + x.heures, 0);
+        reel = el('span', { class: 'total-reel' }, 'Jusqu\'au ' + D.long(fin) + ' : prévu ', el('strong', {}, heures(prevuAuFin)), ' · réalisé ', el('strong', {}, heures(realiseAuFin)), ' ', ecartJour(realiseAuFin - prevuAuFin));
+      } else if (realiseAJour()) reel = el('span', { class: 'total-reel' }, 'Aucune saisie cette semaine');
+      lg.append(el('span', { class: 'total' }, el('strong', {}, heures(total)), ' prévues' + (ref ? ' · contrat ' + heures(ref) : '') + (mad ? ' · dont ' + heures(mad) + ' en mise à disposition' : '')), reel);
     } else {
       const pers = new Set(seances.filter((s) => !s.trace && s.statut === 'prevue').flatMap((s) => s.personnes.map((p) => p.personne_id)));
     lg.append(el('span', { class: 'total' }, el('strong', {}, heures(total)), ' de main-d\'œuvre · ' + pers.size + ' personne' + (pers.size > 1 ? 's' : '')));
@@ -468,7 +532,7 @@
   }
   function changerVue(vue, valeur) {
     etat.vue = vue;
-    if (vue === 'personne' && valeur != null) etat.personne = +valeur;
+    if (vue === 'personne' && valeur != null) { etat.personne = +valeur; etat.realise = null; }
     if (vue === 'activite' && valeur != null) etat.cible = valeur;
     if (vue === 'activite' && !etat.cible) {
       const at = etat.ref.ateliers.find((a) => etat.selection.has(tachesAtelier(a.id)[0])) || etat.ref.ateliers.find((a) => tachesAtelier(a.id).length);

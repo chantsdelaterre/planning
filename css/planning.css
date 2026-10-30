@@ -300,3 +300,16 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .etiquette.sans-fiche { background: #FFF4D6; border-color: #C9A227; color: #5C4300; }
 @media (max-width: 900px) { .ref-grille { grid-template-columns: 1fr; } }
 .onglet[hidden], .lien[hidden] { display: none !important; }
+
+/* Vue par personne : prévu à gauche, réalisé à droite */
+.realise { position: absolute; left: calc(56% + 2px); right: 3px; border-radius: 6px; padding: 4px 6px; overflow: hidden; font-size: 11px; line-height: 1.25;
+  background: repeating-linear-gradient(135deg, #E4F1E8 0 6px, #D6EADD 6px 12px); border: 1px solid #3F8A5A; color: #1F4A36; display: flex; flex-direction: column; gap: 1px; }
+.realise .h { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+.realise.absence { align-items: center; justify-content: center; font-weight: 700; font-size: 13px; background: #EEF1F6; border-color: #7E8AA0; color: #3B4659; }
+.separation-pr { position: absolute; top: 0; bottom: 0; left: 56%; border-left: 1px dashed #C9CEC6; pointer-events: none; }
+.seance .reel { font-size: 11px; font-weight: 600; color: #1F4A36; }
+.seance .reel.ecart { color: var(--rouge); }
+.entete-jour .non-saisi { font-size: 12px; color: #8A5A00; }
+.ecart-nul { color: var(--vert); font-weight: 600; }
+.legende .total-reel { font-size: 14px; color: var(--encre-2); padding: 5px 10px; border-radius: 6px; background: #EEF4F0; }
+@media print { .realise, .separation-pr { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

@@ -272,6 +272,27 @@
       if (q.ajouter === false) { if (k >= 0) responsables.splice(k, 1); } else if (k < 0) responsables.push([+q.atelier_id, +q.personne_id]); return {}; },
     habituel: (q) => { exiger(+q.atelier_id); const x = pers(+q.personne_id);
       x.ateliers_habituels = q.ajouter === false ? x.ateliers_habituels.filter((a) => a !== +q.atelier_id) : [...new Set(x.ateliers_habituels.concat(+q.atelier_id))]; return {}; },
+    // Créneaux réalisés fictifs : les séances passées, avec quelques minutes d'écart, et des CP.
+    realise: (q) => {
+      const pid = +q.personne_id;
+      if (droits.niveau === 'collaborateur' && pid !== droits.personne_id) throw new Error('Tu ne peux voir que tes propres heures');
+      const x = pers(pid); if (!x || x.externe) return { personne_id: pid, lundi: q.lundi, jours: [] };
+      const auj = iso(new Date()), jours = [];
+      const mn = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5), hm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+      for (let i = 0; i < 7; i++) {
+        const d = ajout(q.lundi, i); if (d >= auj) break;
+        const se = S.filter((y) => y.date_seance === d && y.statut === 'prevue' && y.personnes.some((z) => z.personne_id === pid)).sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
+        if (!se.length) continue;
+        const graine = (pid * 7 + +d.slice(8)) % 11;
+        if (graine === 0) { jours.push({ date: d, collab_id: x.fiches[0].collab_id, type: 'CP', heures: 0, creneaux: [] }); continue; }
+        const cr = [];
+        se.forEach((y, k) => { const a = mn(y.heure_debut) + [0, 5, -10, 15, 0][(graine + k) % 5], b = mn(y.heure_fin) + [10, 0, -15, 20, -5][(graine + k) % 5];
+          if (cr.length && a <= cr[cr.length - 1][1] + 5) cr[cr.length - 1][1] = Math.max(cr[cr.length - 1][1], b); else cr.push([a, b]); });
+        const garde = cr.slice(0, 3);
+        jours.push({ date: d, collab_id: x.fiches[0].collab_id, type: 'travaillée', heures: garde.reduce((t, c) => t + (c[1] - c[0]) / 60, 0), creneaux: garde.map((c) => [hm(c[0]), hm(c[1])]) });
+      }
+      return { personne_id: pid, lundi: q.lundi, jours };
+    },
     seance_supprimer: (q) => { const s = seance(q.seance_id); exiger(atelierDe(s)); S.splice(S.indexOf(s), 1); return { seance_id: s.id }; },
     serie_arreter: (q) => { const se = series.find((x) => x.id === +q.serie_id); exiger(tache(se.tache_id).atelier_id); se.date_fin = q.date_fin;
       for (let i = S.length - 1; i >= 0; i--) if (S[i].serie_id === se.id && S[i].date_seance > q.date_fin) S.splice(i, 1); return {}; },
