@@ -62,7 +62,10 @@ button, input, select { font: inherit; color: inherit; }
 /* Corps */
 .corps { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 24px 16px; align-items: stretch; }
 @media (min-width: 721px) {
-  .corps { height: var(--hauteur-corps, 75vh); flex-wrap: nowrap; }
+  body { height: 100vh; display: flex; flex-direction: column; }
+  #app:not([hidden]) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .corps { flex: 1 1 auto; min-height: 380px; flex-wrap: nowrap; }
+  .panneau-selection { max-height: 38vh; overflow-y: auto; flex: none; }
   .grille-cadre { height: 100%; overflow: auto; }
   .cote { height: 100%; min-height: 0; }
   #carte-personnes { flex: 1 1 50%; min-height: 0; display: flex; flex-direction: column; }
@@ -163,10 +166,14 @@ button, input, select { font: inherit; color: inherit; }
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
   .barre, .outils .actions, .semaine-nav button, .panneau-selection, .cote, .bandeau-demo, .message { display: none !important; }
-  body { background: #fff; }
+  body { background: #fff; height: auto !important; display: block !important; }
+  #app { display: block !important; }
   .corps, .outils, .legende { padding: 0; }
   .grille-cadre { border: 0; overflow: visible; height: auto !important; }
   .corps { height: auto !important; }
   .grille { min-width: 0; }
   .seance { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+.champ-heure { display: flex; gap: 4px; }
+.champ-heure select { min-height: 40px; padding: 0 6px; border: 1px solid #C9CEC6; border-radius: 8px; font-weight: 400; flex: 1; min-width: 0; }

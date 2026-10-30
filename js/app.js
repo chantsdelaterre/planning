@@ -45,6 +45,19 @@
   const peutEcrire = () => ['complet', 'responsable'].includes(etat.droits.niveau);
   const peutAtelier = (id) => peutEcrire() && etat.droits.ateliers.includes(id);
 
+  // Heure au quart d'heure : deux listes (heure, minutes). Le sélecteur natif de Chrome ignore le pas.
+  function remplirHeure(cible, valeur) {
+    const q = Math.round(min(valeur || '09:00') / 15) * 15;
+    const sh = el('select', { 'aria-label': 'Heure' }), sm = el('select', { 'aria-label': 'Minutes' });
+    for (let h = 0; h < 24; h++) sh.append(el('option', { value: String(h).padStart(2, '0') }, String(h).padStart(2, '0') + ' h'));
+    for (const m of ['00', '15', '30', '45']) sm.append(el('option', { value: m }, m));
+    sh.value = String(Math.floor(q / 60) % 24).padStart(2, '0'); sm.value = String(q % 60).padStart(2, '0');
+    cible.replaceChildren(sh, sm);
+    cible.classList.add('champ-heure');
+    Object.defineProperty(cible, 'valeur', { configurable: true, get: () => sh.value + ':' + sm.value });
+    return cible;
+  }
+
   // Messages ---------------------------------------------------------------------------
   let minuteur;
   function dire(texte, erreur) {
@@ -173,7 +186,6 @@
 
   function dessiner() {
     const sem = etat.sem; if (!sem) return;
-    ajusterHauteur();
     const nbJ = joursAffiches();
     const dates = Array.from({ length: nbJ }, (_, i) => D.ajout(etat.lundi, i));
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
@@ -336,11 +348,6 @@
     const dispo = cadre.clientHeight - 64;  // moins l'en-tête des jours
     return Math.max(40 / 60, dispo / minutes);
   }
-  function ajusterHauteur() {
-    const corps = $('.corps'); if (!corps || $('#app').hidden) return;
-    const h = Math.max(420, window.innerHeight - corps.getBoundingClientRect().top - 16);
-    document.documentElement.style.setProperty('--hauteur-corps', h + 'px');
-  }
 
   function dessinerPersonnes() {
     const zone = $('#personnes'); zone.replaceChildren();
@@ -407,14 +414,14 @@
 
       // Horaires
       const fDate = el('input', { type: 'date', value: s.date_seance });
-      const fDeb = el('input', { type: 'time', step: '900', value: court5(s.heure_debut) });
-      const fFin = el('input', { type: 'time', step: '900', value: court5(s.heure_fin) });
+      const fDeb = remplirHeure(el('span'), court5(s.heure_debut));
+      const fFin = remplirHeure(el('span'), court5(s.heure_fin));
       z.append(el('div', { class: 'edition' }, el('label', {}, 'Date', fDate), el('label', {}, 'Début', fDeb), el('label', {}, 'Fin', fFin)));
       z.append(el('div', { class: 'boutons' },
         el('button', { class: 'bouton principal', onclick: async () => {
-          if (fFin.value <= fDeb.value) { dire('La fin doit être après le début.', true); return; }
-          const portee = s.serie_id ? await demanderPortee(`${s.titre} : ${D.long(fDate.value)}, ${fDeb.value}–${fFin.value}`) : 'seance';
-          if (portee) agir('seance_modifier', { seance_id: s.id, date: fDate.value, debut: fDeb.value, fin: fFin.value, portee }, 'Séance modifiée.');
+          if (fFin.valeur <= fDeb.valeur) { dire('La fin doit être après le début.', true); return; }
+          const portee = s.serie_id ? await demanderPortee(`${s.titre} : ${D.long(fDate.value)}, ${fDeb.valeur}–${fFin.valeur}`) : 'seance';
+          if (portee) agir('seance_modifier', { seance_id: s.id, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, portee }, 'Séance modifiée.');
         } }, 'Enregistrer'),
         s.statut === 'prevue'
           ? el('button', { class: 'bouton', onclick: () => { const motif = prompt('Motif de la suspension (facultatif) :', ''); if (motif !== null) agir('suspendre', { seance_id: s.id, motif }, 'Séance suspendue.'); } }, 'Suspendre')
@@ -442,7 +449,7 @@
       if (og.children.length) sel.append(og);
     }
     const jour = D.aujourdhui() >= etat.lundi && D.aujourdhui() <= D.ajout(etat.lundi, 6) ? D.aujourdhui() : etat.lundi;
-    $('#f-date').value = jour; $('#f-debut').value = '09:00'; $('#f-fin').value = '12:00';
+    $('#f-date').value = jour; remplirHeure($('#f-debut'), '09:00'); remplirHeure($('#f-fin'), '12:00');
     $('#f-titre').value = ''; $('#f-lieu').value = ''; $('#f-recurrente').checked = false; $('#f-recurrence').hidden = true; $('#f-date-fin').value = '';
     const j = $('#f-jours'); j.replaceChildren();
     JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: i + 1 === D.jourIso(jour) }), n)));
@@ -451,7 +458,7 @@
     $('#dlg-seance').showModal();
   }
   async function validerNouvelle() {
-    const debut = $('#f-debut').value, fin = $('#f-fin').value;
+    const debut = $('#f-debut').valeur, fin = $('#f-fin').valeur;
     if (!debut || !fin || fin <= debut) { dire('La fin doit être après le début.', true); return; }
     const commun = { tache_id: +$('#f-tache').value, debut, fin, titre: $('#f-titre').value, lieu: $('#f-lieu').value,
       personnes: [...$('#f-personnes').selectedOptions].map((o) => +o.value) };
@@ -479,7 +486,14 @@
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue === 'ok') validerNouvelle(); });
     $('#recherche').oninput = (e) => { etat.recherche = e.target.value; dessinerPersonnes(); };
     $('#filtre-habituels').onchange = (e) => { etat.toutLeMonde = e.target.checked; dessinerPersonnes(); };
-    let attente; window.addEventListener('resize', () => { clearTimeout(attente); attente = setTimeout(() => { ajusterHauteur(); dessiner(); }, 120); });
+    // La grille occupe toute la place restante (CSS) ; quand sa hauteur change (fenêtre, panneau
+    // Sélection, message), on redessine pour que les heures la remplissent.
+    let hauteurVue = 0, attente;
+    new ResizeObserver(() => {
+      const h = $('#grille-cadre').clientHeight;
+      if (Math.abs(h - hauteurVue) < 4) return;
+      hauteurVue = h; clearTimeout(attente); attente = setTimeout(dessiner, 80);
+    }).observe($('#grille-cadre'));
     $('#btn-fermer').onclick = () => {
       const sel = $('#fj-societe');
       if (sel.options.length === 1) [...new Set(etat.ref.ateliers.map((a) => a.societe))].forEach((s) => sel.append(el('option', { value: s }, s)));
