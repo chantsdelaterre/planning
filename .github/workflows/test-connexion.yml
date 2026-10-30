@@ -17,8 +17,24 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          test -n "$SUPABASE_DB_URL" || { echo "Secret SUPABASE_DB_URL absent"; exit 1; }
-          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -X -A -t <<'SQL'
+          test -n "$SUPABASE_DB_URL" || { echo "::error::Secret SUPABASE_DB_URL absent"; exit 1; }
+          # Diagnostic sans jamais afficher le secret
+          u="$SUPABASE_DB_URL"
+          case "$u" in postgresql://*|postgres://*) echo "::notice::Préfixe OK";; *) echo "::error::La chaîne ne commence pas par postgresql://";; esac
+          case "$u" in *"[YOUR-PASSWORD]"*|*"YOUR-PASSWORD"*) echo "::error::Le mot de passe n'a pas été remplacé";; esac
+          case "$u" in *" "*) echo "::error::La chaîne contient un espace";; esac
+          arobases=$(printf '%s' "$u" | tr -cd '@' | wc -c)
+          echo "::notice::Nombre de @ dans la chaîne : $arobases (1 attendu)"
+          hote=$(printf '%s' "$u" | sed -E 's#.*@([^:/]+).*#\1#')
+          echo "::notice::Hôte : $hote"
+          utilisateur=$(printf '%s' "$u" | sed -E 's#^[a-z]+://([^:]+):.*#\1#')
+          echo "::notice::Utilisateur : $utilisateur"
+          if ! psql "$u" -X -A -t -c "select 1" >/dev/null 2>err.txt; then
+            msg=$(sed -E 's#postgres(ql)?://[^ ]*#[URL masquée]#g; s/password=[^ ]*/password=***/g' err.txt | tr '\n' ' ')
+            echo "::error::Connexion refusée : $msg"
+            exit 2
+          fi
+          psql "$u" -v ON_ERROR_STOP=1 -X -A -t <<'SQL'
           set default_transaction_read_only = on;
           select 'version: ' || version();
           select 'schemas: ' || string_agg(nspname, ', ' order by nspname)
