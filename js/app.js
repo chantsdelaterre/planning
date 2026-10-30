@@ -563,17 +563,20 @@
     const jour = D.aujourdhui() >= etat.lundi && D.aujourdhui() <= D.ajout(etat.lundi, 6) ? D.aujourdhui() : etat.lundi;
     $('#dlg-seance-titre').textContent = edition ? 'Modifier la séance' : modele ? 'Dupliquer la séance' : 'Nouvelle séance';
     $('#f-valider').textContent = edition ? 'Enregistrer' : 'Créer';
-    $('#f-repetition').hidden = !!edition;
     const info = $('#f-serie-info');
-    info.hidden = !(edition && modele.serie_id);
+    info.hidden = true;
     if (edition && modele.serie_id) info.textContent = 'Séance d\'une série hebdomadaire : à l\'enregistrement, tu choisiras « cette séance » ou « et les suivantes ».';
+    const enSerie = !!(edition && modele.serie_id);
     if (modele) sel.value = String(modele.tache_id);
     const date = modele ? modele.date_seance : jour;
     $('#f-date').value = date;
     remplirHeure($('#f-debut'), modele ? court5(modele.heure_debut) : '09:00'); remplirHeure($('#f-fin'), modele ? court5(modele.heure_fin) : '12:00');
-    $('#f-titre').value = modele ? modele.complement || '' : ''; $('#f-lieu').value = modele ? modele.lieu || '' : ''; $('#f-recurrente').checked = false; $('#f-recurrence').hidden = true; $('#f-date-fin').value = '';
+    $('#f-titre').value = modele ? modele.complement || '' : ''; $('#f-lieu').value = modele ? modele.lieu || '' : ''; $('#f-recurrente').checked = enSerie; $('#f-recurrente').disabled = enSerie; $('#f-recurrence').hidden = !enSerie;
+    $('#f-date-fin').value = enSerie ? modele.serie_fin || '' : '';
+    const ri = $('#f-rep-info'); ri.hidden = !enSerie;
+    ri.textContent = 'Changer les jours ou la fin s\'applique à cette séance et aux suivantes. Pour arrêter la série : « Arrêter la série ici ».';
     const j = $('#f-jours'); j.replaceChildren();
-    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: i + 1 === D.jourIso(date) }), n)));
+    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: enSerie ? modele.serie_jours.includes(i + 1) : i + 1 === D.jourIso(date) }), n)));
     const fp = $('#f-personnes'); fp.replaceChildren();
     const reprises = new Set(modele ? modele.personnes.map((p) => p.personne_id) : []);
     const compter = () => { const n = personnesCochees().length; $('#f-nb-pers').textContent = n ? '(' + n + ')' : ''; };
@@ -612,10 +615,22 @@
       titre: $('#f-titre').value.trim(), lieu: $('#f-lieu').value.trim(),
       personnes: personnesCochees() };
     const nomT = $('#f-tache').selectedOptions[0].textContent + (q.titre ? ' · ' + q.titre : '');
-    const portee = s.serie_id ? await demanderPortee(`${nomT} : ${D.long(q.date)}, ${debut}–${fin}`) : 'seance';
+    let portee = null;
+    const jours = [...$('#f-jours').querySelectorAll('input:checked')].map((c) => +c.value);
+    const finSerie = $('#f-date-fin').value || null;
+    if ($('#f-recurrente').checked) {
+      if (!jours.length) { dire('Choisis au moins un jour.', true); return; }
+      if (finSerie && finSerie < q.date) { dire('La fin de la série doit être après la date de la séance.', true); return; }
+      const avant = s.serie_id ? s.serie_jours.join(',') + '|' + (s.serie_fin || '') : '';
+      if (!s.serie_id || jours.join(',') + '|' + (finSerie || '') !== avant) {
+        // Nouvelle série, ou jours / fin changés : vaut pour cette séance et les suivantes.
+        Object.assign(q, { jours, date_fin_serie: finSerie }); portee = 'suivantes';
+      }
+    }
+    if (!portee) portee = s.serie_id ? await demanderPortee(`${nomT} : ${D.long(q.date)}, ${debut}–${fin}`) : 'seance';
     if (!portee) return;
     etat.choisie = s.id;
-    await agir('seance_modifier', Object.assign(q, { portee }), 'Séance modifiée.');
+    await agir('seance_modifier', Object.assign(q, { portee }), q.jours && !s.serie_id ? 'Série créée à partir de la séance.' : 'Séance modifiée.');
   }
   async function validerNouvelle() {
     const debut = $('#f-debut').valeur, fin = $('#f-fin').valeur;

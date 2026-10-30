@@ -124,6 +124,7 @@
       atelier_id: at.id, atelier: at.nom, couleur: at.couleur, activite_id: at.activite_id, activite: R.activites.find((a) => a.id === at.activite_id).nom,
       nb_personnes: s.personnes.length, main_oeuvre_h: s.statut === 'prevue' ? duree * s.personnes.length : 0,
       trace: !(s.date_seance >= d0 && s.date_seance <= d6), personnes: s.personnes, chevauchements: chev,
+      serie_jours: s.serie_id ? series.find((x) => x.id === s.serie_id).jours : null, serie_fin: s.serie_id ? series.find((x) => x.id === s.serie_id).date_fin : null,
     };
   }
 
@@ -161,11 +162,18 @@
     seance_modifier: (q) => {
       const s = seance(q.seance_id); exiger(atelierDe(s));
       if (q.tache_id && +q.tache_id !== s.tache_id) exiger(tache(+q.tache_id).atelier_id);
+      if (!s.serie_id && q.jours) {
+        const n = creerSerie({ tache_id: +q.tache_id || s.tache_id, jours: q.jours.map(Number), debut: (q.debut || s.heure_debut).slice(0, 5), fin: (q.fin || s.heure_fin).slice(0, 5), date_debut: q.date || s.date_seance, date_fin: q.date_fin_serie || null,
+          titre: 'titre' in q ? q.titre || null : s.titre, personnes: q.personnes ? q.personnes.map(Number) : s.personnes.map((x) => x.personne_id) });
+        S.splice(S.indexOf(s), 1); return { serie_id: n.id };
+      }
+      if (s.serie_id && (q.jours || 'date_fin_serie' in q)) q.portee = 'suivantes';
       if (q.portee === 'suivantes' && s.serie_id) {
         const se = series.find((x) => x.id === s.serie_id); const dec = Math.round((new Date(q.date || s.date_seance) - new Date(s.date_serie)) / 864e5);
+        const finAvant = se.date_fin;
         se.date_fin = ajout(s.date_serie, -1);
         for (let i = S.length - 1; i >= 0; i--) if (S[i].serie_id === se.id && S[i].date_serie >= s.date_serie && (!S[i].modifiee || S[i].id === s.id)) S.splice(i, 1);
-        const n = creerSerie({ tache_id: +q.tache_id || se.tache_id, jours: se.jours.map((j) => ((j - 1 + dec) % 7 + 7) % 7 + 1), debut: (q.debut || s.heure_debut).slice(0, 5), fin: (q.fin || s.heure_fin).slice(0, 5), date_debut: ajout(s.date_serie, dec), titre: 'titre' in q ? q.titre || null : se.titre, personnes: q.personnes ? q.personnes.map(Number) : se.personnes });
+        const n = creerSerie({ tache_id: +q.tache_id || se.tache_id, date_fin: 'date_fin_serie' in q ? q.date_fin_serie || null : finAvant, jours: q.jours ? q.jours.map(Number) : se.jours.map((j) => ((j - 1 + dec) % 7 + 7) % 7 + 1), debut: (q.debut || s.heure_debut).slice(0, 5), fin: (q.fin || s.heure_fin).slice(0, 5), date_debut: ajout(s.date_serie, dec), titre: 'titre' in q ? q.titre || null : se.titre, personnes: q.personnes ? q.personnes.map(Number) : se.personnes });
         return { serie_id: n.id };
       }
       if (q.date) s.date_seance = q.date; if (q.debut) s.heure_debut = h(q.debut); if (q.fin) s.heure_fin = h(q.fin);

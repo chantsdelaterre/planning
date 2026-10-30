@@ -414,3 +414,39 @@ begin
   delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 14 : réussie';
+
+-- 15. Répétition dans la fenêtre : séance isolée -> série ; jours et fin d'une série modifiés.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; s bigint; x bigint; anna bigint; lundi date := date_trunc('week', current_date)::date + 7; r jsonb; n int;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  -- Séance isolée le lundi, avec Anna, devient une série lundi + jeudi sur 2 semaines.
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', lundi, 'debut', '09:00', 'fin', '10:00', 'personnes', jsonb_build_array(anna)));
+  x := (r->>'seance_id')::bigint;
+  r := public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'jours', jsonb_build_array(1, 4), 'date_fin_serie', lundi + 13, 'portee', 'seance'));
+  s := (r->>'serie_id')::bigint;
+  if s is null then raise exception 'ÉCHEC : pas de série créée'; end if;
+  if exists (select 1 from planning.seance where id = x) then raise exception 'ÉCHEC : la séance isolée reste'; end if;
+  select count(*) into n from planning.seance where serie_id = s and supprimee_le is null;
+  if n <> 4 then raise exception 'ÉCHEC : % séances au lieu de 4', n; end if;
+  if (select count(*) from planning.affectation a join planning.seance se on se.id = a.seance_id where se.serie_id = s) <> 4 then raise exception 'ÉCHEC : Anna pas reprise'; end if;
+  -- Depuis le jeudi de la 1re semaine : mardi seulement, sans fin.
+  select id into x from planning.seance where serie_id = s and date_serie = lundi + 3;
+  r := public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'jours', jsonb_build_array(2), 'date_fin_serie', null, 'portee', 'seance'));
+  if not exists (select 1 from planning.seance where serie_id = s and date_serie = lundi) then raise exception 'ÉCHEC : le premier lundi a disparu'; end if;
+  if exists (select 1 from planning.seance se join planning.serie sr on sr.id = se.serie_id where se.tache_id = t and se.date_seance > lundi + 3 and se.supprimee_le is null and extract(isodow from se.date_seance) <> 2)
+    then raise exception 'ÉCHEC : jours non changés'; end if;
+  if (select date_fin from planning.serie where id = (r->>'serie_id')::bigint) is not null then raise exception 'ÉCHEC : fin non levée'; end if;
+  if (select count(*) from planning.seance where tache_id = t and date_seance > lundi + 14 and supprimee_le is null) = 0 then raise exception 'ÉCHEC : la série ne continue pas'; end if;
+  -- Fin avant la séance : refusée.
+  begin
+    perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', (select id from planning.seance where serie_id = s and date_serie = lundi), 'date_fin_serie', lundi - 1));
+    raise exception 'ÉCHEC : fin incohérente acceptée';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 15 : réussie';
