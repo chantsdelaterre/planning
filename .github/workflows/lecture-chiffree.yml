@@ -1,0 +1,49 @@
+name: Lecture chiffrée (lecture seule)
+
+# Exécute une requête de outils/lectures/ dans une transaction en lecture seule.
+# Le dépôt est public : la sortie n'est JAMAIS affichée en clair. Elle est chiffrée
+# avec outils/cle-lecture.pub.pem ; seule la clé privée de l'espace de travail de
+# Claude peut la lire.
+
+on:
+  workflow_dispatch:
+    inputs:
+      requete:
+        description: "Nom du fichier dans outils/lectures/ (sans .sql)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  lire:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lire et chiffrer
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          REQUETE: ${{ inputs.requete }}
+        run: |
+          set -euo pipefail
+          case "$REQUETE" in *[!a-z0-9-]*|"") echo "::error::Nom de requête invalide"; exit 1;; esac
+          f="outils/lectures/$REQUETE.sql"
+          test -f "$f" || { echo "::error::Fichier introuvable"; exit 1; }
+          export PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=60000"
+          if ! psql "$SUPABASE_DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$f" > sortie.txt 2> erreurs.txt; then
+            echo "Échec de la requête" >> sortie.txt
+            sed -E 's#postgres(ql)?://[^ ]*#[URL masquée]#g' erreurs.txt >> sortie.txt
+          fi
+          gzip -9 sortie.txt
+          openssl rand -hex 32 > cle.txt
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in sortie.txt.gz -out sortie.enc -pass file:cle.txt
+          openssl pkeyutl -encrypt -pubin -inkey outils/cle-lecture.pub.pem -pkeyopt rsa_padding_mode:oaep -in cle.txt -out cle.enc
+          rm -f cle.txt sortie.txt.gz erreurs.txt
+          bloc=$( { base64 -w0 cle.enc; printf '.'; base64 -w0 sortie.enc; } )
+          echo "Taille chiffrée : ${#bloc} caractères"
+          i=0
+          while [ -n "$bloc" ]; do
+            i=$((i+1)); morceau="${bloc:0:3500}"; bloc="${bloc:3500}"
+            echo "::notice title=chiffre-$i::$morceau"
+          done
+          test $i -le 10 || echo "::warning::Plus de 10 morceaux : sortie tronquée par GitHub"
