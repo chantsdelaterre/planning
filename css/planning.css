@@ -313,3 +313,17 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .ecart-nul { color: var(--vert); font-weight: 600; }
 .legende .total-reel { font-size: 14px; color: var(--encre-2); padding: 5px 10px; border-radius: 6px; background: #EEF4F0; }
 @media print { .realise, .separation-pr { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* Sélection compacte : activités et regroupements en pastilles, ateliers en cartes côte à côte */
+.sel-barre { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.sel-barre .sel-titre { margin: 0; min-width: 110px; }
+.sel-puces { display: flex; flex-wrap: wrap; gap: 6px; }
+.sel-puces label { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--trait); border-radius: 999px; font-size: 13px; cursor: pointer; background: var(--carte); }
+.sel-puces label:has(input:checked) { background: #E6F0EA; border-color: #9CC2AA; }
+.sel-ateliers { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 10px; margin-top: 6px; align-items: start; }
+.sel-carte { border: 1px solid var(--trait); border-top: 4px solid var(--c, var(--trait)); border-radius: 8px; padding: 6px 10px 8px; }
+.sel-carte > label { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; padding: 2px 0 4px; cursor: pointer; }
+.sel-carte .sel-soc { font-size: 11px; color: var(--discret); font-weight: 400; margin-left: auto; }
+.sel-carte .sel-taches label { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+.sel-carte.vide { opacity: .55; }
+.sel-carte.vide .sel-taches { font-size: 12px; color: var(--discret); }

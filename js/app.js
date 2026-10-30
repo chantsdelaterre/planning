@@ -112,21 +112,21 @@
       ids.forEach((id) => (c.checked ? etat.selection.add(id) : etat.selection.delete(id)));
       garderSelection(); dessinerSelection(); dessiner();
     });
-    return el('label', {}, c, pastille ? el('span', { class: 'pastille', style: 'background:' + pastille }) : null, libelle + (ids.length === 0 ? ' (aucune tâche)' : ''));
+    return el('label', {}, c, pastille ? el('span', { class: 'pastille', style: 'background:' + pastille }) : null, libelle);
   }
   function dessinerSelection() {
-    const arbre = $('#arbre'); arbre.replaceChildren();
-    for (const ac of etat.ref.activites) {
-      const bloc = el('div', { class: 'racine' }, caseGroupe(tachesActivite(ac.id), ac.nom));
-      for (const at of etat.ref.ateliers.filter((a) => a.activite_id === ac.id)) {
-        const n = el('div', { class: 'noeud' }, caseGroupe(tachesAtelier(at.id), at.nom + ' · ' + at.societe, at.couleur));
-        for (const t of etat.ref.taches.filter((x) => x.atelier_id === at.id)) n.append(el('div', { class: 'noeud' }, caseGroupe([t.id], t.nom)));
-        bloc.append(n);
-      }
-      arbre.append(bloc);
-    }
+    const acts = $('#sel-activites'); acts.replaceChildren();
+    for (const ac of etat.ref.activites) acts.append(caseGroupe(tachesActivite(ac.id), ac.nom));
     const rg = $('#regroupements'); rg.replaceChildren();
-    for (const r of etat.ref.regroupements) rg.append(el('div', { class: 'racine' }, caseGroupe(tachesRegroupement(r.id), r.nom)));
+    for (const r of etat.ref.regroupements) if (tachesRegroupement(r.id).length) rg.append(caseGroupe(tachesRegroupement(r.id), r.nom));
+    const arbre = $('#arbre'); arbre.replaceChildren();
+    for (const ac of etat.ref.activites) for (const at of etat.ref.ateliers.filter((a) => a.activite_id === ac.id)) {
+      const ts = etat.ref.taches.filter((x) => x.atelier_id === at.id);
+      const tete = caseGroupe(tachesAtelier(at.id), at.nom, at.couleur);
+      tete.append(el('span', { class: 'sel-soc' }, at.societe));
+      arbre.append(el('div', { class: 'sel-carte' + (ts.length ? '' : ' vide'), style: '--c:' + at.couleur }, tete,
+        el('div', { class: 'sel-taches' }, ...(ts.length ? ts.map((t) => caseGroupe([t.id], t.nom)) : ['aucune tâche : à créer dans Administration']))));
+    }
   }
 
   // Chargement -----------------------------------------------------------------------------
