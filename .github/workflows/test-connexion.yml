@@ -2,9 +2,6 @@ name: Test de connexion (lecture seule)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/test-connexion.yml
 
 permissions:
   contents: read
@@ -29,19 +26,12 @@ jobs:
           echo "::notice::Hôte : $hote"
           utilisateur=$(printf '%s' "$u" | sed -E 's#^[a-z]+://([^:]+):.*#\1#')
           echo "::notice::Utilisateur : $utilisateur"
-          if ! psql "$u" -X -A -t -c "select 1" >/dev/null 2>err.txt; then
+          if ! PGOPTIONS="-c default_transaction_read_only=on" psql "$u" -X -A -t -c "select 1" >/dev/null 2>err.txt; then
             msg=$(sed -E 's#postgres(ql)?://[^ ]*#[URL masquée]#g; s/password=[^ ]*/password=***/g' err.txt | tr '\n' ' ')
             echo "::error::Connexion refusée : $msg"
             exit 2
           fi
-          psql "$u" -v ON_ERROR_STOP=1 -X -A -t <<'SQL'
-          set default_transaction_read_only = on;
-          select 'version: ' || version();
-          select 'schemas: ' || string_agg(nspname, ', ' order by nspname)
-            from pg_namespace where nspname not like 'pg_%' and nspname <> 'information_schema';
-          select 'schema planning existe deja: ' || exists(select 1 from pg_namespace where nspname = 'planning');
-          select 'tables public: ' || count(*) from information_schema.tables where table_schema = 'public';
-          SQL
+          echo "Connexion à la base : ok (aucune donnée lue)"
 
       - uses: supabase/setup-cli@v1
         with:

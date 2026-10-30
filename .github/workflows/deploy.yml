@@ -1,0 +1,91 @@
+name: Déploiement
+
+# Envoi sur main : applique les migrations nouvelles, puis déploie les Edge Functions planning-*.
+# Migrations « planning » : automatiques, sous le rôle planning_proprietaire.
+# Migrations « validation » : attendent l'approbation de Coco (environnement validation-coco).
+# Dépôt public : aucune donnée de la base n'est jamais affichée.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "migrations/**"
+      - "supabase/functions/**"
+      - "outils/appliquer.sh"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploiement
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PROJET: oldkmapumqnibdcniecd
+
+jobs:
+  analyser:
+    runs-on: ubuntu-24.04
+    outputs:
+      a_appliquer: ${{ steps.analyse.outputs.a_appliquer }}
+      besoin_validation: ${{ steps.analyse.outputs.besoin_validation }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: analyse
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: outils/appliquer.sh analyser "$SUPABASE_DB_URL"
+
+  migrations:
+    needs: analyser
+    if: needs.analyser.outputs.a_appliquer == 'true' && needs.analyser.outputs.besoin_validation != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: outils/appliquer.sh appliquer "$SUPABASE_DB_URL"
+
+  migrations-validees:
+    needs: analyser
+    if: needs.analyser.outputs.besoin_validation == 'true'
+    runs-on: ubuntu-24.04
+    environment: validation-coco
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: outils/appliquer.sh appliquer "$SUPABASE_DB_URL" --avec-validation
+
+  fonctions:
+    needs: [analyser, migrations, migrations-validees]
+    if: >-
+      always() &&
+      needs.analyser.result == 'success' &&
+      needs.migrations.result != 'failure' && needs.migrations.result != 'cancelled' &&
+      needs.migrations-validees.result != 'failure' && needs.migrations-validees.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - id: liste
+        run: |
+          shopt -s nullglob
+          noms=""
+          for d in supabase/functions/planning-*/; do noms="$noms $(basename "$d")"; done
+          echo "noms=${noms# }" >> "$GITHUB_OUTPUT"
+          echo "Fonctions planning : ${noms:-aucune}"
+      - if: steps.liste.outputs.noms != ''
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - if: steps.liste.outputs.noms != ''
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          NOMS: ${{ steps.liste.outputs.noms }}
+        run: |
+          for n in $NOMS; do
+            case "$n" in planning-*) ;; *) echo "::error::$n refusé : préfixe planning- obligatoire"; exit 1;; esac
+            supabase functions deploy "$n" --project-ref "$PROJET" --no-verify-jwt
+          done
