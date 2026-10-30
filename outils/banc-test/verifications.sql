@@ -713,3 +713,47 @@ begin
   delete from planning.lien; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 23-24 : réussie';
+
+-- 25. Règles de durée : 6 h d'affilée sans pause de 30 min, 10 h par jour ; refus sauf forçage, alerte admin.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; anna bigint; j date := current_date + 3; r jsonb; x bigint;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  -- 8 h – 12 h puis 12 h 15 – 14 h 30 : 6 h 15 d'affilée (coupure de 15 min seulement) -> refusé.
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', j, 'debut', '08:00', 'fin', '12:00', 'personnes', jsonb_build_array(anna)));
+  begin
+    perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', j, 'debut', '12:15', 'fin', '14:30', 'personnes', jsonb_build_array(anna)));
+    raise exception 'ÉCHEC : pause manquante acceptée';
+  exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if;
+    if sqlerrm not like 'REGLES|%"pause"%' then raise exception 'ÉCHEC : message %', sqlerrm; end if;
+  end;
+  if (select count(*) from planning.seance where date_seance = j) <> 1 then raise exception 'ÉCHEC : la séance refusée a été gardée'; end if;
+  -- Avec une vraie pause (12 h 30) : accepté.
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', j, 'debut', '12:30', 'fin', '14:30', 'personnes', jsonb_build_array(anna)));
+  x := (r->>'seance_id')::bigint;
+  -- Jusqu'à 19 h : 4 + 2 + 4 = 10 h, accepté ; 19 h 15 : plus de 10 h, refusé puis forcé.
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', j, 'debut', '15:00', 'fin', '19:00', 'personnes', jsonb_build_array(anna)));
+  begin
+    perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'debut', '12:30', 'fin', '14:45'));
+    raise exception 'ÉCHEC : plus de 10 h accepté';
+  exception when raise_exception then
+    if sqlerrm like 'ÉCHEC%' then raise; end if;
+    if sqlerrm not like 'REGLES|%"max_jour"%' then raise exception 'ÉCHEC : message %', sqlerrm; end if;
+  end;
+  perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'debut', '12:30', 'fin', '14:45', 'forcer', true, 'motif', 'Inventaire'));
+  if (select count(*) from planning.alerte where regle = 'max_jour' and motif = 'Inventaire' and vue_le is null) <> 1 then raise exception 'ÉCHEC : alerte non inscrite'; end if;
+  -- 14 h 45 -> 15 h ne laisse que 15 min : la pause manque aussi. Deux alertes.
+  if (public.planning_appel(adm, 'session', '{}')->>'alertes_non_vues')::int <> 2 then raise exception 'ÉCHEC : compteur d''alertes'; end if;
+  -- Une action qui ne crée rien de nouveau passe, même si une infraction existe déjà ce jour-là.
+  perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'titre', 'note'));
+  if jsonb_array_length(public.planning_appel(adm, 'alertes_lire', '{}')->'alertes') <> 2 then raise exception 'ÉCHEC : liste des alertes'; end if;
+  perform public.planning_appel(adm, 'alertes_vues', '{}');
+  if (public.planning_appel(adm, 'session', '{}')->>'alertes_non_vues')::int <> 0 then raise exception 'ÉCHEC : alertes vues'; end if;
+  reset role;
+  delete from planning.alerte; delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 25 : réussie';

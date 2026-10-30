@@ -75,10 +75,40 @@
     try {
       const r = await API.appeler(action, params);
       await chargerSemaine();
+      if (params && params.forcer) rafraichirAlertes();
       if (r.chevauchements && r.chevauchements.length) dire('Attention : chevauchement pour cette personne ce jour-là.', true);
       else if (succes) dire(succes);
       return r;
-    } catch (e) { dire(e.message, true); return null; }
+    } catch (e) {
+      // Règles de durée : rien n'est enregistré ; on propose de corriger ou de forcer.
+      if (e.message.startsWith('REGLES|')) {
+        const motif = await demanderForcage(JSON.parse(e.message.slice(7)));
+        if (motif !== null) return agir(action, Object.assign({}, params, { forcer: true, motif }), (succes || 'Enregistré') + ' Les administrateurs sont prévenus.');
+        await chargerSemaine();
+        return null;
+      }
+      dire(e.message, true); return null;
+    }
+  }
+  function demanderForcage(liste) {
+    const ul = $('#fr-liste'); ul.replaceChildren();
+    for (const x of liste) ul.append(el('li', {}, el('strong', {}, x.nom), ' — ' + D.long(x.date) + ' : ' + x.detail));
+    $('#fr-motif').value = '';
+    const d = $('#dlg-regles');
+    return new Promise((ok) => {
+      d.addEventListener('close', () => ok(d.returnValue === 'forcer' ? $('#fr-motif').value.trim() : null), { once: true });
+      d.returnValue = ''; d.showModal();
+    });
+  }
+  // Compteur d'alertes non vues sur l'onglet Administration.
+  async function rafraichirAlertes() {
+    if (!['complet', 'consultation'].includes(etat.droits.niveau)) return;
+    try { const s = await API.appeler('session'); etat.alertesNonVues = +s.alertes_non_vues || 0; } catch (e) { return; }
+    dessinerBadge();
+  }
+  function dessinerBadge() {
+    const o = $('#onglet-admin'); o.replaceChildren('Administration');
+    if (etat.alertesNonVues) o.append(el('span', { class: 'badge-alerte', title: 'Alertes non vues' }, String(etat.alertesNonVues)));
   }
 
   // Sélection (gardée dans ce navigateur) ------------------------------------------------
@@ -138,7 +168,7 @@
     if (API.demo) $('#bandeau-demo').hidden = false;
     try {
       const s = await API.appeler('session');
-      etat.droits = s.droits; etat.ref = s.referentiel;
+      etat.droits = s.droits; etat.ref = s.referentiel; etat.alertesNonVues = +s.alertes_non_vues || 0;
     } catch (e) {
       dire(e.message === 'lien_invalide' ? 'Ce lien n\'est pas valide ou n\'est plus actif.' : e.message, true);
       return;
@@ -155,6 +185,7 @@
     $('#btn-nouvelle').hidden = !peutEcrire();
     $('#btn-fermer').hidden = etat.droits.niveau !== 'complet';
     $('#onglet-admin').hidden = !['complet', 'consultation'].includes(etat.droits.niveau);
+    dessinerBadge();
     $('#btn-personne').hidden = !peutEcrire();
     if (etat.vue === 'admin' && $('#onglet-admin').hidden) etat.vue = 'general';
     $('#app').hidden = false;
@@ -1002,10 +1033,32 @@
     adminAgir('acces_regler', { personne_id: accesEdite.id, tout: $('#fa-tout').checked, elements }, 'Accès de ' + accesEdite.prenom + ' enregistrés.');
   }
 
+  async function adminAlertes(z) {
+    let r;
+    try { r = await API.appeler('alertes_lire'); } catch (e) { z.append(el('p', { class: 'vide' }, e.message)); return; }
+    if (A.rubrique !== 'alertes') return;
+    const liste = r.alertes || [];
+    if (!liste.length) { z.append(el('p', { class: 'vide' }, 'Aucune dérogation ces 4 derniers mois.')); return; }
+    const tb = el('tbody');
+    for (const a of liste) {
+      tb.append(el('tr', { class: a.vue ? '' : 'alerte-neuve' },
+        el('td', {}, D.court(a.quand.slice(0, 10)), el('div', { class: 'sous' }, a.quand.slice(11, 16))),
+        el('td', {}, a.qui_nom),
+        el('td', {}, el('strong', {}, a.personne || '?'), el('div', { class: 'sous' }, D.long(a.date))),
+        el('td', {}, a.detail),
+        el('td', {}, a.motif || el('span', { class: 'sous' }, '—'))));
+    }
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Forcé le'), el('th', {}, 'Par'), el('th', {}, 'Pour'), el('th', {}, 'Règle'), el('th', {}, 'Motif'))), tb));
+    if (!lectureSeule() && liste.some((a) => !a.vue)) {
+      try { await API.appeler('alertes_vues'); etat.alertesNonVues = 0; dessinerBadge(); } catch (e) { /* rien */ }
+    }
+  }
+
   const AIDES = {
     referentiel: 'Un nom se modifie en cliquant dessus (Entrée pour valider). Ce qui a servi s\'archive au lieu de se supprimer : l\'historique reste intact. Changer la société d\'un atelier ne touche que les séances créées ensuite.',
     responsables: 'Un responsable crée et modifie les séances de ses ateliers, avec son propre lien de Suivi des temps.',
     personnes: 'Quand la fiche d\'une personne à venir est créée dans Suivi des temps, rattache-la ici : toutes ses séances passent sur sa fiche.',
+    alertes: 'Les plannings enregistrés malgré les règles de durée (pause au bout de 6 h, 10 h par jour), avec qui a forcé et pourquoi. Les nouvelles sont surlignées ; elles sont marquées comme vues à l\'ouverture de cette rubrique.',
     acces: 'Chaque collaborateur ou responsable voit toujours ses propres séances, plus les ateliers dont il est habituel ou responsable. Ouvre-lui ici d\'autres activités, ateliers, tâches ou regroupements, ou tout le planning. Accès complets et consultation voient tout.',
     habituels: 'Les ateliers habituels d\'une personne la font apparaître dans le volet « Personnes » quand ces ateliers sont sélectionnés. Ce n\'est pas une restriction.',
   };
@@ -1016,7 +1069,7 @@
     $('#a-recherche').hidden = !['personnes', 'habituels', 'acces'].includes(A.rubrique);
     const z = $('#a-contenu'); z.replaceChildren();
     if (!A.donnees) { z.append(el('p', { class: 'vide' }, 'Chargement…')); rechargerAdmin(); return; }
-    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels, acces: adminAcces })[A.rubrique](z);
+    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels, acces: adminAcces, alertes: adminAlertes })[A.rubrique](z);
   }
 
   // Personne sans fiche : création (volet ou administration) et renommage.

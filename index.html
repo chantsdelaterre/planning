@@ -94,6 +94,7 @@
         <button type="button" class="segment" data-admin="personnes">Personnes sans fiche</button>
         <button type="button" class="segment" data-admin="habituels">Ateliers habituels</button>
         <button type="button" class="segment" data-admin="acces">Accès</button>
+        <button type="button" class="segment" data-admin="alertes">Alertes</button>
       </div>
       <label class="case" id="a-archives-l"><input type="checkbox" id="a-archives"> Afficher les éléments archivés</label>
       <input type="search" id="a-recherche" placeholder="Rechercher une personne" aria-label="Rechercher une personne">
@@ -197,6 +198,19 @@
       <button type="button" class="bouton" id="fl-mail">Envoyer par e-mail</button>
     </div>
     <div class="pied"><button value="ok" class="bouton">Fermer</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-regles" class="dialogue">
+  <form method="dialog">
+    <h2>Règles de durée non respectées</h2>
+    <p class="sous">Rien n'a été enregistré. Pause obligatoire au bout de 6 h de travail d'affilée (coupure d'au moins 30 min), 10 h au plus par jour.</p>
+    <ul id="fr-liste" class="liste-regles"></ul>
+    <label>Motif du forçage (facultatif)<input type="text" id="fr-motif" placeholder="Inventaire, remplacement…"></label>
+    <div class="pied">
+      <button value="annuler" class="bouton principal">Revenir et corriger</button>
+      <button value="forcer" class="bouton danger">Forcer et prévenir les administrateurs</button>
+    </div>
   </form>
 </dialog>
 

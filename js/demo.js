@@ -57,7 +57,31 @@
   const fermes = [];
   const series = [];
   const responsables = [[1, 4]];  // David Modèle responsable de Paniers
-  const accesTout = [], accesElements = [], liens = [];
+  const accesTout = [], accesElements = [], liens = [], alertes = [];
+  // Règles de durée (comme dans la base) : 6 h d'affilée sans coupure de 30 min, 10 h par jour.
+  function infractions() {
+    const aujourd = iso(new Date()), res = [];
+    const mn = (t) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
+    const parPJ = {};
+    S.filter((s) => s.statut === 'prevue' && s.date_seance >= aujourd).forEach((s) => s.personnes.forEach((x) => {
+      (parPJ[x.personne_id + '|' + s.date_seance] = parPJ[x.personne_id + '|' + s.date_seance] || []).push([mn(s.heure_debut), mn(s.heure_fin)]); }));
+    for (const [k, l] of Object.entries(parPJ)) {
+      l.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      const blocs = []; let finMax = null;
+      for (const [d, f] of l) {
+        if (finMax === null || d >= finMax + 30) blocs.push({ deb: d, fin: f, gaps: 0 });
+        else { const b = blocs[blocs.length - 1]; if (d > finMax) b.gaps += d - finMax; b.fin = Math.max(b.fin, f); }
+        finMax = finMax === null ? f : Math.max(finMax, f);
+      }
+      const [pid, date] = k.split('|'); let tot = 0;
+      const hh = (x) => { const m = Math.round(x * 60); return Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + String(m % 60).padStart(2, '0') : ''); };
+      const hm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+      for (const b of blocs) { const h = (b.fin - b.deb - b.gaps) / 60; tot += h;
+        if (h > 6) res.push({ personne_id: +pid, date, regle: 'pause', detail: 'Pause obligatoire au bout de 6 h : ' + hh(h) + ' d\'affilée (' + hm(b.deb) + '–' + hm(b.fin) + ')' }); }
+      if (tot > 10) res.push({ personne_id: +pid, date, regle: 'max_jour', detail: 'Plus de 10 h dans la journée : ' + hh(tot) });
+    }
+    return res;
+  }
   const admins = [{ admin_id: 'a1', nom: 'Admin Un (fictif)', niveau: 'complet' }, { admin_id: 'a2', nom: 'Admin Deux (fictif)', niveau: 'complet' }, { admin_id: 'a3', nom: 'Admin Trois (fictif)', niveau: 'consultation' }];
   // Tâches visibles (null = toutes), comme dans la base.
   function tachesVisibles() {
@@ -156,11 +180,13 @@
   const seance = (id) => { const s = S.find((x) => x.id === +id); if (!s) throw new Error('Séance introuvable'); return s; };
 
   const actions = {
+    alertes_lire: () => ({ alertes: alertes.slice() }),
+    alertes_vues: () => { alertes.forEach((a) => { a.vue = true; }); return {}; },
     session: () => {
       const v = tachesVisibles();
       const taches = R.taches.filter((a) => !a.archive && (!v || v.includes(a.id)));
       const ateliers = R.ateliers.filter((a) => !a.archive && taches.some((t) => t.atelier_id === a.id));
-      return { droits, referentiel: { taches, ateliers, activites: R.activites.filter((a) => !a.archive && ateliers.some((x) => x.activite_id === a.id)),
+      return { alertes_non_vues: alertes.filter((a) => !a.vue).length, droits, referentiel: { taches, ateliers, activites: R.activites.filter((a) => !a.archive && ateliers.some((x) => x.activite_id === a.id)),
         regroupements: R.regroupements.filter((a) => !a.archive && taches.some((t) => t.regroupement_id === a.id)) } };
     },
     semaine: (q) => {
@@ -346,7 +372,18 @@
     appeler: async (action, params) => {
       await new Promise((r) => setTimeout(r, 60));
       if (!actions[action]) throw new Error('Action inconnue');
-      return Object.assign({ ok: true }, JSON.parse(JSON.stringify(actions[action](params || {}))));
+      const q = params || {};
+      const ecrit = !['session', 'semaine', 'recap', 'realise', 'admin_lire', 'alertes_lire'].includes(action);
+      const cle = (x) => x.personne_id + '|' + x.date + '|' + x.regle;
+      const avant = ecrit ? new Set(infractions().map(cle)) : null;
+      const sauveS = ecrit ? JSON.parse(JSON.stringify(S)) : null, sauveSeries = ecrit ? JSON.parse(JSON.stringify(series)) : null;
+      const r = actions[action](q);
+      if (ecrit) {
+        const nouv = infractions().filter((x) => !avant.has(cle(x))).map((x) => Object.assign({ nom: pers(x.personne_id).prenom + ' ' + pers(x.personne_id).nom }, x));
+        if (nouv.length && !q.forcer) { S.splice(0, S.length, ...sauveS); series.splice(0, series.length, ...sauveSeries); throw new Error('REGLES|' + JSON.stringify(nouv)); }
+        nouv.forEach((x) => alertes.unshift({ id: ++seq, quand: new Date().toISOString(), qui_nom: 'Démo', action, motif: q.motif || null, personne: x.nom, date: x.date, regle: x.regle, detail: x.detail, vue: false }));
+      }
+      return Object.assign({ ok: true }, JSON.parse(JSON.stringify(r)));
     },
   };
 })();
