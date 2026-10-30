@@ -37,12 +37,16 @@
   const heures = (x) => { const q = Math.round(x * 4) * 15; const hh = Math.floor(q / 60), mm = q % 60; return hh + ' h' + (mm ? ' ' + String(mm).padStart(2, '0') : ''); };
   const nomP = (p) => p.prenom + (p.nom ? ' ' + p.nom.charAt(0) + '.' : '');
   const nomSeance = (s) => s.tache + (s.complement ? ' · ' + s.complement : '');
+  // Une couleur fixe par personne (la même dans tous les ateliers), choisie dans une palette contrastée.
+  // Teintes réparties par l'angle d'or : stables par personne, bien distinctes d'une personne à la suivante.
+  const couleurPersonne = (id) => 'hsl(' + Math.round((id * 137.508) % 360) + ' 62% 40%)';
+  const parPersonne = () => etat.couleurs === 'personne' && etat.vue !== 'personne';
   const teinte = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
 
   const etat = {
     droits: null, ref: null, lundi: D.lundiDe(D.aujourdhui()), sem: null,
     selection: null, dimanche: false, choisie: null, recherche: '', toutLeMonde: false,
-    vue: 'general', personne: null, cible: null, realise: null,  // cible (vue par activité) : 'a:3', 'at:2', 't:10', 'r:4'
+    vue: 'general', personne: null, cible: null, realise: null, couleurs: 'atelier',  // cible (vue par activité) : 'a:3', 'at:2', 't:10', 'r:4'
   };
   const peutEcrire = () => ['complet', 'responsable'].includes(etat.droits.niveau);
   const peutAtelier = (id) => peutEcrire() && etat.droits.ateliers.includes(id);
@@ -178,7 +182,8 @@
     try { const v = JSON.parse(localStorage.getItem('planning_vue') || 'null'); if (v) Object.assign(etat, { vue: v.vue || 'general', personne: v.personne || null, cible: v.cible || null }); } catch (e) { /* rien */ }
     // Un collaborateur arrive sur son propre planning.
     if (etat.droits.niveau === 'collaborateur' && etat.droits.personne_id) { etat.vue = 'personne'; etat.personne = etat.droits.personne_id; }
-    try { etat.dimanche = localStorage.getItem('planning_dimanche') === '1'; } catch (e) { /* rien */ }
+    try { etat.dimanche = localStorage.getItem('planning_dimanche') === '1'; etat.couleurs = localStorage.getItem('planning_couleurs') || 'atelier'; } catch (e) { /* rien */ }
+    $('#couleurs').value = etat.couleurs;
     $('#dimanche').checked = etat.dimanche;
     const libelles = { complet: 'Accès complet', consultation: 'Consultation', responsable: 'Responsable d\'atelier', collaborateur: 'Lecture' };
     $('#qui').textContent = libelles[etat.droits.niveau] || '';
@@ -389,10 +394,14 @@
       'data-seance': s.id,
       onclick: () => { etat.choisie = s.id; dessiner(); if (modifiable) ouvrirSeance(s); },
     },
+      parPersonne() && s.personnes.length ? el('span', { class: 'bandes', 'aria-hidden': 'true' }, ...s.personnes.map((x) => el('span', { style: 'background:' + couleurPersonne(x.personne_id) }))) : null,
       el('span', { class: 't' }, nomSeance(s)),
       el('span', { class: 'h' }, court5(s.heure_debut) + '–' + court5(s.heure_fin)),
-      h >= 64 ? el('span', { class: 'p' }, s.personnes.map(nomP).join(', ')) : null,
+      h >= 64 ? el('span', { class: 'p' }, ...(parPersonne()
+        ? s.personnes.flatMap((x, i) => [i ? ', ' : '', el('span', { class: 'np', style: 'color:' + couleurPersonne(x.personne_id) }, nomP(x))])
+        : [s.personnes.map(nomP).join(', ')])) : null,
       h >= 50 ? etiq : null);
+    if (parPersonne()) { b.classList.add('par-personne'); b.style.setProperty('--bandes', (s.personnes.length * 5) + 'px'); }
     if (modifiable) {
       b.addEventListener('dragstart', (ev) => {
         ev.dataTransfer.setData('application/x-seance', JSON.stringify({ id: s.id, decalage: ev.offsetY }));
@@ -454,6 +463,17 @@
   function dessinerLegende(seances) {
     const lg = $('#legende'); lg.replaceChildren();
     const reelles = seances.filter((x) => !x.trace);
+    if (parPersonne() && etat.vue === 'general') {
+      const h = new Map();
+      for (const s of reelles.filter((x) => x.statut === 'prevue')) for (const x of s.personnes) {
+        const v = h.get(x.personne_id) || { nom: nomP(x), h: 0 }; v.h += s.duree_h; h.set(x.personne_id, v);
+      }
+      for (const [id, v] of [...h].sort((a, b) => a[1].nom.localeCompare(b[1].nom)))
+        lg.append(el('span', { class: 'puce', style: `border-color:${couleurPersonne(id)}` }, el('span', { class: 'pastille', style: 'background:' + couleurPersonne(id) }), v.nom + ' · ' + heures(v.h)));
+      const total = reelles.reduce((a, s) => a + s.main_oeuvre_h, 0);
+      lg.append(el('span', { class: 'total' }, el('strong', {}, heures(total)), ' de main-d\'œuvre · ' + h.size + ' personne' + (h.size > 1 ? 's' : '')));
+      return;
+    }
     // Vue par activité : une puce par tâche ; sinon une par atelier.
     const parTache = etat.vue === 'activite';
     const groupes = new Map();
@@ -1130,7 +1150,7 @@
       const courante = etat.vue === 'personne' && p.id === etat.personne;
       const ligne = el('div', { class: 'personne' + (courante ? ' courante' : ''), draggable: peutEcrire() ? 'true' : null, title: peutEcrire() ? 'Glisser sur une séance' : null },
         peutEcrire() ? el('span', { class: 'poignee', 'aria-hidden': 'true' }, '⋮⋮') : null,
-        el('div', { style: 'flex:1;min-width:0' }, el('button', { type: 'button', class: 'nom', title: 'Voir son planning', onclick: () => changerVue('personne', p.id) }, p.prenom + ' ' + p.nom), el('div', { class: 'contrat' }, contrat)),
+        el('div', { style: 'flex:1;min-width:0' }, el('button', { type: 'button', class: 'nom', title: 'Voir son planning', onclick: () => changerVue('personne', p.id) }, parPersonne() ? el('span', { class: 'pastille-p', style: 'background:' + couleurPersonne(p.id) }) : null, p.prenom + ' ' + p.nom), el('div', { class: 'contrat' }, contrat)),
         el('div', { class: 'jauge' }, el('div', { class: 'mono' }, ref ? heures(p.prevu_h) + ' / ' + ref : heures(p.prevu_h)),
           el('div', { class: 'barre-j' }, el('div', { class: p.prevu_h > ref && ref ? 'depasse' : '', style: 'width:' + pct + '%' }))));
       if (peutEcrire()) ligne.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('application/x-personne', String(p.id)); ev.dataTransfer.effectAllowed = 'copy'; });
@@ -1287,6 +1307,7 @@
     $('#sel-tout').onclick = () => { etat.selection = new Set(etat.ref.taches.map((t) => t.id)); garderSelection(); dessinerSelection(); dessiner(); };
     $('#sel-rien').onclick = () => { etat.selection = new Set(); garderSelection(); dessinerSelection(); dessiner(); };
     $('#btn-imprimer').onclick = () => window.print();
+    $('#couleurs').onchange = (e) => { etat.couleurs = e.target.value; try { localStorage.setItem('planning_couleurs', etat.couleurs); } catch (x) { /* rien */ } dessiner(); };
     for (const b of document.querySelectorAll('[data-vue]')) b.onclick = () => changerVue(b.dataset.vue);
     $('#choix').onchange = (e) => { if (e.target.value) changerVue(etat.vue, e.target.value); };
     brancherVolet();
