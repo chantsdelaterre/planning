@@ -1,6 +1,6 @@
 // Accès à l'Edge Function planning-api.
-// Le jeton arrive dans l'adresse (?id=… pour un collaborateur, ?admin=… pour un administrateur),
-// comme dans Suivi des temps. Il est retiré de l'adresse aussitôt et gardé pour l'onglet seulement :
+// Le jeton arrive dans l'adresse comme dans Suivi des temps : ?id=… pour un collaborateur,
+// ?token=… (ou ?admin=…) pour un administrateur. Il est retiré de l'adresse aussitôt et gardé pour l'onglet seulement :
 // il n'apparaît donc ni dans l'historique partagé, ni dans le pied de page d'une impression.
 (function () {
   const URL_API = 'https://oldkmapumqnibdcniecd.supabase.co/functions/v1/planning-api';
@@ -8,11 +8,11 @@
   function lireJeton() {
     const p = new URLSearchParams(location.search);
     let ident = null;
-    if (p.get('admin')) ident = { jeton_admin: p.get('admin') };
+    if (p.get('token') || p.get('admin')) ident = { jeton_admin: p.get('token') || p.get('admin') };
     else if (p.get('id')) ident = { jeton: p.get('id') };
     if (ident) {
       try { sessionStorage.setItem('planning_ident', JSON.stringify(ident)); } catch (e) { /* navigation privée */ }
-      p.delete('admin'); p.delete('id');
+      p.delete('admin'); p.delete('token'); p.delete('id');
       const reste = p.toString();
       history.replaceState(null, '', location.pathname + (reste ? '?' + reste : '') + location.hash);
       return ident;
