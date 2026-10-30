@@ -91,15 +91,16 @@
       <label>Complément (facultatif)<input type="text" id="f-titre" placeholder="ajouté au nom de la tâche"></label>
       <label>Lieu (facultatif)<input type="text" id="f-lieu"></label>
     </div>
-    <fieldset class="repetition">
+    <p class="sous" id="f-serie-info" hidden></p>
+    <fieldset class="repetition" id="f-repetition">
       <legend><label class="case"><input type="checkbox" id="f-recurrente"> Répéter chaque semaine</label></legend>
       <div id="f-recurrence" hidden>
         <div class="jours" id="f-jours"></div>
         <label>Jusqu'au (facultatif)<input type="date" id="f-date-fin"></label>
       </div>
     </fieldset>
-    <label>Personnes<select id="f-personnes" multiple size="6"></select></label>
-    <p class="sous">Ctrl ou Cmd + clic pour en choisir plusieurs. On peut aussi les glisser ensuite sur la séance.</p>
+    <fieldset class="liste-cases"><legend>Personnes <span class="sous" id="f-nb-pers"></span></legend><div id="f-personnes"></div></fieldset>
+    <div class="actions-seance" id="f-actions" hidden></div>
     <div class="pied">
       <button value="annuler" class="bouton" formnovalidate>Annuler</button>
       <button value="ok" class="bouton principal" id="f-valider">Créer</button>

@@ -168,7 +168,12 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .edition.deux { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .edition label, .dialogue label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
 .edition input, .dialogue input, .dialogue select { min-height: 40px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; font-weight: 400; }
-.dialogue select[multiple] { padding: 4px; min-height: 120px; }
+.liste-cases { border: 1px solid var(--trait); border-radius: 8px; padding: 6px 10px 8px; margin: 0; }
+.liste-cases legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+#f-personnes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; max-height: 210px; overflow-y: auto; }
+#f-personnes label { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; font-size: 14px; min-height: 32px; cursor: pointer; }
+#f-personnes input { min-height: 0; width: 16px; height: 16px; }
+@media (max-width: 720px) { #f-personnes { grid-template-columns: 1fr; } }
 .boutons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
 /* Dialogues */
@@ -184,6 +189,8 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .jours label { flex-direction: row; align-items: center; font-weight: 500; }
 .pied { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .choix { display: flex; flex-direction: column; gap: 8px; }
+.actions-seance { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--trait); }
+.actions-seance[hidden] { display: none; }
 
 /* Téléphone */
 @media (max-width: 720px) {

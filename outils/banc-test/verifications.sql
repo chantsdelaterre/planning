@@ -386,3 +386,31 @@ begin
   delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 13 : réussie';
+
+-- 14. Modifier les personnes d'une séance : seule, puis pour les suivantes de la série.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; s bigint; x bigint; y bigint; anna bigint; chloe bigint; lundi date := date_trunc('week', current_date)::date + 7; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  set local role service_role;
+  r := public.planning_appel(adm, 'serie_creer', jsonb_build_object('tache_id', t, 'jours', jsonb_build_array(1, 3), 'debut', '09:00', 'fin', '10:00', 'date_debut', lundi, 'personnes', jsonb_build_array(anna)));
+  s := (r->>'serie_id')::bigint;
+  select id into x from planning.seance where serie_id = s order by date_serie limit 1;
+  select id into y from planning.seance where serie_id = s order by date_serie offset 1 limit 1;
+  -- Cette séance seulement : Anna remplacée par Chloé (mise à disposition SCEA -> SAS).
+  perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'personnes', jsonb_build_array(chloe), 'portee', 'seance'));
+  if (select array_agg(personne_id) from planning.affectation where seance_id = x) <> array[chloe] then raise exception 'ÉCHEC : personnes de la séance'; end if;
+  if not (select mad from planning.affectation where seance_id = x) then raise exception 'ÉCHEC : MAD de Chloé'; end if;
+  if (select array_agg(personne_id) from planning.affectation where seance_id = y) <> array[anna] then raise exception 'ÉCHEC : la suivante a changé'; end if;
+  -- La suivante et les autres : Anna + Chloé.
+  perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', y, 'personnes', jsonb_build_array(anna, chloe), 'portee', 'suivantes'));
+  if (select count(*) from planning.seance se where se.tache_id = t and se.date_seance > lundi and se.supprimee_le is null
+        and (select count(*) from planning.affectation a where a.seance_id = se.id) <> 2) > 0 then raise exception 'ÉCHEC : suivantes sans les deux personnes'; end if;
+  if (select array_agg(personne_id) from planning.affectation where seance_id = x) <> array[chloe] then raise exception 'ÉCHEC : la première a changé'; end if;
+  reset role;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 14 : réussie';
