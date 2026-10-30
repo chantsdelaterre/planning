@@ -411,6 +411,14 @@
     if (edit) {
 
       // Horaires
+      const fTache = el('select', {});
+      for (const at of etat.ref.ateliers.filter((a) => peutAtelier(a.id) || a.id === s.atelier_id)) {
+        const og = el('optgroup', { label: at.nom });
+        etat.ref.taches.filter((t) => t.atelier_id === at.id).forEach((t) => og.append(el('option', { value: t.id, selected: t.id === s.tache_id }, t.nom)));
+        if (og.children.length) fTache.append(og);
+      }
+      fTache.value = String(s.tache_id);
+      z.append(el('div', { class: 'edition un' }, el('label', {}, 'Tâche', fTache)));
       const fDate = el('input', { type: 'date', value: s.date_seance });
       const fDeb = remplirHeure(el('span'), court5(s.heure_debut));
       const fFin = remplirHeure(el('span'), court5(s.heure_fin));
@@ -422,7 +430,7 @@
         el('button', { class: 'bouton principal', onclick: async () => {
           if (fFin.valeur <= fDeb.valeur) { dire('La fin doit être après le début.', true); return; }
           const portee = s.serie_id ? await demanderPortee(`${nomSeance(s)} : ${D.long(fDate.value)}, ${fDeb.valeur}–${fFin.valeur}`) : 'seance';
-          if (portee) agir('seance_modifier', { seance_id: s.id, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, titre: fCompl.value.trim(), lieu: fLieu.value.trim(), portee }, 'Séance modifiée.');
+          if (portee) agir('seance_modifier', { seance_id: s.id, tache_id: +fTache.value, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, titre: fCompl.value.trim(), lieu: fLieu.value.trim(), portee }, 'Séance modifiée.');
         } }, 'Enregistrer'),
         s.statut === 'prevue'
           ? el('button', { class: 'bouton', onclick: () => { const motif = prompt('Motif de la suspension (facultatif) :', ''); if (motif !== null) agir('suspendre', { seance_id: s.id, motif }, 'Séance suspendue.'); } }, 'Suspendre')

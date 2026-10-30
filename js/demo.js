@@ -160,14 +160,17 @@
     serie_creer: (q) => { exiger(tache(+q.tache_id).atelier_id); const se = creerSerie({ tache_id: +q.tache_id, jours: q.jours.map(Number), debut: q.debut, fin: q.fin, date_debut: q.date_debut, date_fin: q.date_fin, titre: q.titre, personnes: (q.personnes || []).map(Number) }); return { serie_id: se.id }; },
     seance_modifier: (q) => {
       const s = seance(q.seance_id); exiger(atelierDe(s));
+      if (q.tache_id && +q.tache_id !== s.tache_id) exiger(tache(+q.tache_id).atelier_id);
       if (q.portee === 'suivantes' && s.serie_id) {
         const se = series.find((x) => x.id === s.serie_id); const dec = Math.round((new Date(q.date || s.date_seance) - new Date(s.date_serie)) / 864e5);
         se.date_fin = ajout(s.date_serie, -1);
         for (let i = S.length - 1; i >= 0; i--) if (S[i].serie_id === se.id && S[i].date_serie >= s.date_serie && (!S[i].modifiee || S[i].id === s.id)) S.splice(i, 1);
-        const n = creerSerie({ tache_id: se.tache_id, jours: se.jours.map((j) => ((j - 1 + dec) % 7 + 7) % 7 + 1), debut: (q.debut || s.heure_debut).slice(0, 5), fin: (q.fin || s.heure_fin).slice(0, 5), date_debut: ajout(s.date_serie, dec), titre: se.titre, personnes: se.personnes });
+        const n = creerSerie({ tache_id: +q.tache_id || se.tache_id, jours: se.jours.map((j) => ((j - 1 + dec) % 7 + 7) % 7 + 1), debut: (q.debut || s.heure_debut).slice(0, 5), fin: (q.fin || s.heure_fin).slice(0, 5), date_debut: ajout(s.date_serie, dec), titre: se.titre, personnes: se.personnes });
         return { serie_id: n.id };
       }
       if (q.date) s.date_seance = q.date; if (q.debut) s.heure_debut = h(q.debut); if (q.fin) s.heure_fin = h(q.fin);
+      if (q.tache_id) { s.tache_id = +q.tache_id; s.societe = atelier(tache(s.tache_id).atelier_id).societe;
+        s.personnes = s.personnes.map((x) => { const f = fiche(x.personne_id, s.societe); return Object.assign({}, x, { collab_id: f.collab_id, mad: f.mad }); }); }
       if ('titre' in q) s.titre = q.titre || null; if ('lieu' in q) s.lieu = q.lieu || null;
       s.modifiee = true; return { seance_id: s.id };
     },

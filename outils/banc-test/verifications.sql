@@ -365,3 +365,24 @@ begin
   delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérifications : toutes réussies';
+
+-- 13. Changer la tâche d'une séance (SAS -> SCEA) : la société suit, la mise à disposition est recalculée.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t_sas bigint; t_scea bigint; x bigint; anna bigint; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t.id into t_sas from planning.tache t join planning.atelier a on a.id = t.atelier_id where a.societe = 'SAS' limit 1;
+  select t.id into t_scea from planning.tache t join planning.atelier a on a.id = t.atelier_id where a.societe = 'SCEA' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  r := public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t_sas, 'date', current_date + 1, 'debut', '09:00', 'fin', '10:00', 'personnes', jsonb_build_array(anna)));
+  x := (r->>'seance_id')::bigint;
+  if (select mad from planning.affectation where seance_id = x) then raise exception 'ÉCHEC : Anna en MAD sur SAS'; end if;
+  perform public.planning_appel(adm, 'seance_modifier', jsonb_build_object('seance_id', x, 'tache_id', t_scea, 'portee', 'seance'));
+  if (select tache_id from planning.seance where id = x) <> t_scea then raise exception 'ÉCHEC : tâche non changée'; end if;
+  if (select societe from planning.seance where id = x) <> 'SCEA' then raise exception 'ÉCHEC : société non suivie'; end if;
+  if not (select mad from planning.affectation where seance_id = x) then raise exception 'ÉCHEC : MAD non recalculée'; end if;
+  reset role;
+  delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 13 : réussie';
