@@ -142,4 +142,63 @@ begin
   -- Nettoyage
   delete from planning.jour_ferme; delete from planning.seance; delete from planning.serie;
 end $$;
+-- Règles (0007)
+do $$
+declare t bigint; s bigint; yann bigint; chloe bigint; ext bigint; n int; x bigint; r record;
+begin
+  select id into t from planning.tache where nom = 'Ensachage';
+  select personne_id into yann from public.collaborateurs where collab_id = 'COLL032';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  insert into public.personne (prenom, nom, externe) values ('Intérim', 'Fictif', true) returning personne_id into ext;
+  insert into planning.jour_ferme (date, motif) values ('2026-11-11', 'Armistice');
+  insert into planning.serie (tache_id, jours, heure_debut, heure_fin, date_debut)
+    values (t, '{2,3}', '09:00', '12:00', '2026-11-02') returning id into s;
+  insert into planning.serie_personne values (s, yann), (s, chloe), (s, ext);
+  n := planning.generer_seances('2026-11-15', '2026-11-02');
+  if n <> 4 then raise exception 'ÉCHEC : % séances générées au lieu de 4', n; end if;
+  if planning.generer_seances('2026-11-15', '2026-11-02') <> 0 then raise exception 'ÉCHEC : génération non idempotente'; end if;
+  if (select statut from planning.seance where serie_id = s and date_serie = '2026-11-11') <> 'suspendue' then
+    raise exception 'ÉCHEC : jour fermé non suspendu'; end if;
+  -- Fiches imputées : Yann (fiches SAS + SARL) sur un atelier SAS -> fiche SAS ; Chloé (SCEA) -> mise à disposition ; externe -> aucune.
+  select * into r from planning.affectation a join planning.seance se on se.id = a.seance_id
+    where se.serie_id = s and se.date_serie = '2026-11-03' and a.personne_id = yann;
+  if r.collab_id <> 'COLL032' or r.mad then raise exception 'ÉCHEC : fiche de Yann (% %)', r.collab_id, r.mad; end if;
+  select * into r from planning.affectation a join planning.seance se on se.id = a.seance_id
+    where se.serie_id = s and se.date_serie = '2026-11-03' and a.personne_id = chloe;
+  if r.collab_id <> 'T004' or not r.mad then raise exception 'ÉCHEC : màd de Chloé'; end if;
+  select * into r from planning.affectation a join planning.seance se on se.id = a.seance_id
+    where se.serie_id = s and se.date_serie = '2026-11-03' and a.personne_id = ext;
+  if r.collab_id is not null or r.mad then raise exception 'ÉCHEC : externe'; end if;
+  -- Main-d'œuvre : 3 h x 3 personnes ; 0 si suspendue.
+  if (select main_oeuvre_h from planning.v_seance where serie_id = s and date_serie = '2026-11-03') <> 9 then
+    raise exception 'ÉCHEC : main-d''œuvre'; end if;
+  if (select main_oeuvre_h from planning.v_seance where serie_id = s and date_serie = '2026-11-11') <> 0 then
+    raise exception 'ÉCHEC : séance suspendue comptée'; end if;
+  -- Déplacement : la séance du mercredi 4 passe au jeudi 5 ; la série ne la recrée pas.
+  update planning.seance set date_seance = '2026-11-05', modifiee = true where serie_id = s and date_serie = '2026-11-04';
+  if planning.generer_seances('2026-11-15', '2026-11-02') <> 0 then raise exception 'ÉCHEC : séance déplacée recréée'; end if;
+  if not (select deplacee from planning.v_seance where serie_id = s and date_serie = '2026-11-04') then raise exception 'ÉCHEC : déplacement non vu'; end if;
+  -- Chevauchement : Yann aussi sur une séance ponctuelle 10:00-11:00 le mardi 3.
+  insert into planning.seance (tache_id, societe, date_seance, heure_debut, heure_fin)
+    values (t, 'SAS', '2026-11-03', '10:00', '11:00') returning id into x;
+  perform planning.affecter(x, yann);
+  select count(*) into n from planning.v_chevauchement where personne_id = yann and date_jour = '2026-11-03';
+  if n <> 2 then raise exception 'ÉCHEC : % lignes de chevauchement au lieu de 2', n; end if;
+  -- Indisponibilité de Chloé le mardi matin.
+  insert into planning.indisponibilite (personne_id, date_debut, date_fin, jours, heure_debut, heure_fin, motif)
+    values (chloe, '2026-11-01', '2026-11-30', '{2}', '08:00', '10:00', 'Formation');
+  if (select count(*) from planning.v_chevauchement where personne_id = chloe and nature = 'indisponibilite') <> 2 then
+    raise exception 'ÉCHEC : indisponibilité non détectée'; end if;
+  -- Prévu par jour : Yann le 3 = 3 h + 1 h.
+  if (select sum(heures) from planning.v_prevu_jour where personne_id = yann and date_jour = '2026-11-03') <> 4 then
+    raise exception 'ÉCHEC : prévu du jour'; end if;
+  -- Le rôle des Edge Functions lit les vues.
+  set local role service_role;
+  perform * from planning.v_seance limit 1; perform * from planning.v_chevauchement limit 1;
+  perform * from planning.v_realise_jour limit 1; perform * from planning.v_prevu_jour limit 1;
+  perform planning.generer_seances('2026-11-15', '2026-11-02');
+  reset role;
+  delete from planning.indisponibilite; delete from planning.seance; delete from planning.serie; delete from planning.jour_ferme;
+  delete from public.personne where personne_id = ext;
+end $$;
 select 'Vérifications : toutes réussies';
