@@ -569,6 +569,7 @@
           const portee = s.serie_id ? await demanderPortee(`${nomSeance(s)} : ${D.long(fDate.value)}, ${fDeb.valeur}–${fFin.valeur}`) : 'seance';
           if (portee) agir('seance_modifier', { seance_id: s.id, tache_id: +fTache.value, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, titre: fCompl.value.trim(), lieu: fLieu.value.trim(), portee }, 'Séance modifiée.');
         } }, 'Enregistrer'),
+        el('button', { class: 'bouton', onclick: () => ouvrirNouvelle(s) }, 'Dupliquer'),
         s.statut === 'prevue'
           ? el('button', { class: 'bouton', onclick: () => { const motif = prompt('Motif de la suspension (facultatif) :', ''); if (motif !== null) agir('suspendre', { seance_id: s.id, motif }, 'Séance suspendue.'); } }, 'Suspendre')
           : el('button', { class: 'bouton', onclick: () => agir('reprendre', { seance_id: s.id }, 'Séance rétablie.') }, 'Rétablir'),
@@ -586,7 +587,8 @@
   }
 
   // Nouvelle séance ------------------------------------------------------------------------
-  function ouvrirNouvelle() {
+  // modele : une séance à dupliquer (tâche, horaires, complément, lieu, personnes repris).
+  function ouvrirNouvelle(modele) {
     const sel = $('#f-tache'); sel.replaceChildren();
     for (const at of etat.ref.ateliers.filter((a) => peutAtelier(a.id))) {
       const og = el('optgroup', { label: at.nom });
@@ -594,12 +596,17 @@
       if (og.children.length) sel.append(og);
     }
     const jour = D.aujourdhui() >= etat.lundi && D.aujourdhui() <= D.ajout(etat.lundi, 6) ? D.aujourdhui() : etat.lundi;
-    $('#f-date').value = jour; remplirHeure($('#f-debut'), '09:00'); remplirHeure($('#f-fin'), '12:00');
-    $('#f-titre').value = ''; $('#f-lieu').value = ''; $('#f-recurrente').checked = false; $('#f-recurrence').hidden = true; $('#f-date-fin').value = '';
+    $('#dlg-seance-titre').textContent = modele ? 'Dupliquer la séance' : 'Nouvelle séance';
+    if (modele) sel.value = String(modele.tache_id);
+    const date = modele ? modele.date_seance : jour;
+    $('#f-date').value = date;
+    remplirHeure($('#f-debut'), modele ? court5(modele.heure_debut) : '09:00'); remplirHeure($('#f-fin'), modele ? court5(modele.heure_fin) : '12:00');
+    $('#f-titre').value = modele ? modele.complement || '' : ''; $('#f-lieu').value = modele ? modele.lieu || '' : ''; $('#f-recurrente').checked = false; $('#f-recurrence').hidden = true; $('#f-date-fin').value = '';
     const j = $('#f-jours'); j.replaceChildren();
-    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: i + 1 === D.jourIso(jour) }), n)));
+    JOURS.forEach((n, i) => j.append(el('label', {}, el('input', { type: 'checkbox', value: i + 1, checked: i + 1 === D.jourIso(date) }), n)));
     const fp = $('#f-personnes'); fp.replaceChildren();
-    etat.sem.personnes.forEach((p) => fp.append(el('option', { value: p.id }, p.prenom + ' ' + p.nom)));
+    const reprises = new Set(modele ? modele.personnes.map((p) => p.personne_id) : []);
+    etat.sem.personnes.forEach((p) => fp.append(el('option', { value: p.id, selected: reprises.has(p.id) }, p.prenom + ' ' + p.nom)));
     $('#dlg-seance').showModal();
   }
   async function validerNouvelle() {
@@ -629,7 +636,7 @@
     for (const b of document.querySelectorAll('[data-vue]')) b.onclick = () => changerVue(b.dataset.vue);
     $('#choix').onchange = (e) => { if (e.target.value) changerVue(etat.vue, e.target.value); };
     brancherVolet();
-    $('#btn-nouvelle').onclick = ouvrirNouvelle;
+    $('#btn-nouvelle').onclick = () => ouvrirNouvelle();
     $('#f-recurrente').onchange = (e) => { $('#f-recurrence').hidden = !e.target.checked; };
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue === 'ok') validerNouvelle(); });
     $('#recherche').oninput = (e) => { etat.recherche = e.target.value; dessinerPersonnes(); };
