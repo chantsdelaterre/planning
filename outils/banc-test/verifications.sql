@@ -516,3 +516,71 @@ begin
   delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 17 : réussie';
+
+-- 18-19. Personnes sans fiche : un responsable en crée une, on la planifie, puis on la rattache à la
+-- vraie personne quand sa fiche arrive dans Suivi des temps. Le planning ne peut toucher aucune personne avec fiche.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; resp jsonb; t bigint; at bigint; s bigint; x bigint;
+        anna bigint; nouveau bigint; vrai bigint; r jsonb; lundi date := date_trunc('week', current_date)::date + 7;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id, t2.atelier_id into t, at from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  insert into planning.atelier_responsable values (at, anna);
+  resp := jsonb_build_object('type', 'collab', 'personne_id', anna);
+  set local role service_role;
+  -- Un responsable crée « Léo Nouveau », à venir, et le planifie sur une série.
+  r := public.planning_appel(resp, 'personne_creer', '{"prenom":"Léo","nom":"Nouveau","nature":"a_venir"}');
+  nouveau := (r->>'personne_id')::bigint;
+  if not exists (select 1 from jsonb_array_elements(public.planning_appel(adm, 'semaine', jsonb_build_object('lundi', lundi))->'personnes') e
+                  where (e->>'id')::bigint = nouveau and e->>'nature' = 'a_venir') then raise exception 'ÉCHEC : la personne à venir n''est pas proposée'; end if;
+  r := public.planning_appel(resp, 'serie_creer', jsonb_build_object('tache_id', t, 'jours', jsonb_build_array(1, 3), 'debut', '09:00', 'fin', '12:00', 'date_debut', lundi, 'date_fin', lundi + 13, 'personnes', jsonb_build_array(nouveau)));
+  s := (r->>'serie_id')::bigint;
+  if (select count(*) from planning.affectation where personne_id = nouveau) <> 4 then raise exception 'ÉCHEC : séances de la personne à venir'; end if;
+  if exists (select 1 from planning.affectation where personne_id = nouveau and collab_id is not null) then raise exception 'ÉCHEC : fiche imputée à une personne sans fiche'; end if;
+  -- Un responsable ne peut ni rattacher ni toucher au référentiel.
+  begin perform public.planning_appel(resp, 'ref_enregistrer', '{"type":"activite","nom":"X"}'); raise exception 'ÉCHEC : responsable sur le référentiel';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role;
+  -- Suivi des temps crée la fiche (son déclencheur crée la vraie personne).
+  insert into public.collaborateurs (collab_id, prenom, nom, structure, type_contrat, heures_hebdo, actif, token) values ('T099', 'Léo', 'NOUVEAU', 'SAS', 'CDD', 35, false, 'jL');
+  select personne_id into vrai from public.collaborateurs where collab_id = 'T099';
+  set local role service_role;
+  r := public.planning_appel(adm, 'admin_lire', '{}');
+  if not exists (select 1 from jsonb_array_elements(r->'personnes') e where (e->>'id')::bigint = nouveau and e->'suggestions' @> to_jsonb(vrai)) then
+    raise exception 'ÉCHEC : pas de suggestion de rattachement'; end if;
+  r := public.planning_appel(adm, 'personne_rattacher', jsonb_build_object('source', nouveau, 'cible', vrai));
+  if (r->>'seances')::int <> 4 then raise exception 'ÉCHEC : % séances rattachées', r->>'seances'; end if;
+  if exists (select 1 from public.personne where personne_id = nouveau) then raise exception 'ÉCHEC : la personne provisoire reste'; end if;
+  if (select count(*) from planning.affectation where personne_id = vrai and collab_id = 'T099' and not mad) <> 4 then raise exception 'ÉCHEC : fiche non imputée après rattachement'; end if;
+  if not exists (select 1 from planning.serie_personne where serie_id = s and personne_id = vrai) then raise exception 'ÉCHEC : série non rattachée'; end if;
+  -- Une personne avec fiche ne peut être ni renommée ni rattachée depuis le planning.
+  begin perform public.planning_appel(adm, 'personne_modifier', jsonb_build_object('personne_id', anna, 'prenom', 'Pirate')); raise exception 'ÉCHEC : personne avec fiche renommée';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  begin perform public.planning_appel(adm, 'personne_rattacher', jsonb_build_object('source', anna, 'cible', vrai)); raise exception 'ÉCHEC : personne avec fiche rattachée';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role;
+  -- Même en contournant les fonctions, le rôle du planning ne peut rien sur une personne avec fiche.
+  set local role planning_proprietaire;
+  update public.personne set prenom = 'Pirate' where personne_id = anna;
+  delete from public.personne where personne_id = anna;
+  reset role;
+  if (select prenom from public.personne where personne_id = anna) <> 'Anna' then raise exception 'ÉCHEC : la base a laissé passer'; end if;
+  -- Référentiel : créer, renommer, archiver (refusé tant qu'il y a des enfants actifs), rétablir.
+  set local role service_role;
+  r := public.planning_appel(adm, 'ref_enregistrer', jsonb_build_object('type', 'tache', 'atelier_id', at, 'nom', 'Tâche essai'));
+  x := (r->>'id')::bigint;
+  perform public.planning_appel(adm, 'ref_enregistrer', jsonb_build_object('type', 'tache', 'id', x, 'nom', 'Tâche renommée', 'regroupement_id', null));
+  if (select nom from planning.tache where id = x) <> 'Tâche renommée' then raise exception 'ÉCHEC : renommage'; end if;
+  begin perform public.planning_appel(adm, 'ref_archiver', jsonb_build_object('type', 'atelier', 'id', at)); raise exception 'ÉCHEC : atelier archivé avec des tâches actives';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  perform public.planning_appel(adm, 'ref_archiver', jsonb_build_object('type', 'tache', 'id', x));
+  if (select archive_le from planning.tache where id = x) is null then raise exception 'ÉCHEC : archivage'; end if;
+  perform public.planning_appel(adm, 'ref_archiver', jsonb_build_object('type', 'tache', 'id', x, 'archiver', false));
+  perform public.planning_appel(adm, 'responsable', jsonb_build_object('atelier_id', at, 'personne_id', vrai));
+  perform public.planning_appel(adm, 'habituel', jsonb_build_object('atelier_id', at, 'personne_id', vrai));
+  reset role;
+  delete from planning.seance; delete from planning.serie_personne; delete from planning.serie; delete from planning.journal; delete from planning.acces_admin;
+  delete from planning.atelier_responsable; delete from planning.personne_atelier; delete from planning.tache where id = x;
+end $$;
+select 'Vérification 18-19 : réussie';

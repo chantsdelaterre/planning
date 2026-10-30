@@ -272,3 +272,31 @@ button.onglet:hover:not(.actif) { background: #2E3631; }
 .champ-heure select { min-height: 40px; padding: 0 6px; border: 1px solid #C9CEC6; border-radius: 8px; font-weight: 400; flex: 1; min-width: 0; }
 .outils[hidden], .legende[hidden], .corps[hidden], .recap-outils [hidden] { display: none !important; }
 .recap-cadre .tache-nom { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Administration */
+.admin-cadre { padding: 14px 16px 20px; }
+.admin-cadre h3 { margin: 18px 0 8px; font-size: 15px; }
+.admin-cadre h3:first-child { margin-top: 0; }
+.ref-grille { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 24px; align-items: start; }
+.ref-activite { border: 1px solid var(--trait); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.ref-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0; }
+.ref-ligne input[type=text], .ref-ligne select, .admin-cadre .champ { min-height: 36px; padding: 0 8px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--carte); font-size: 14px; }
+.ref-ligne input[type=text] { flex: 1 1 160px; min-width: 120px; }
+.ref-ligne input[type=color] { width: 36px; height: 36px; padding: 2px; border: 1px solid #C9CEC6; border-radius: 8px; background: var(--carte); }
+.ref-activite > .ref-ligne input[type=text] { font-weight: 700; }
+.ref-atelier { margin: 8px 0 4px 14px; padding: 8px 10px; border-left: 4px solid var(--trait); background: #FAFBF8; border-radius: 0 8px 8px 0; }
+.ref-atelier > .ref-ligne input[type=text] { font-weight: 600; }
+.ref-taches { margin-left: 14px; }
+.ref-archive { opacity: .55; }
+.ref-archive input { text-decoration: line-through; }
+.ref-ajout { display: flex; gap: 8px; margin: 6px 0 0; }
+.ref-ajout input { flex: 1; min-height: 36px; padding: 0 8px; border: 1px dashed #B9C0BB; border-radius: 8px; background: transparent; }
+.mini-info { font-size: 12px; color: var(--discret); white-space: nowrap; }
+.puce-p { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--fond); border: 1px solid var(--trait); font-size: 13px; }
+.puce-p button { border: 0; background: none; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 6px; color: var(--discret); }
+.matrice th.at { text-align: center; white-space: normal; min-width: 70px; }
+.matrice td.c { text-align: center; }
+.matrice input { width: 18px; height: 18px; }
+.etiquette.sans-fiche { background: #FFF4D6; border-color: #C9A227; color: #5C4300; }
+@media (max-width: 900px) { .ref-grille { grid-template-columns: 1fr; } }
+.onglet[hidden], .lien[hidden] { display: none !important; }

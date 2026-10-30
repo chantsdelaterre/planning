@@ -19,6 +19,7 @@
     <button type="button" class="onglet" data-vue="personne">Par personne</button>
     <button type="button" class="onglet" data-vue="activite">Par activité</button>
     <button type="button" class="onglet" data-vue="recap">Récapitulatifs</button>
+    <button type="button" class="onglet" data-vue="admin" id="onglet-admin" hidden>Administration</button>
   </nav>
   <div class="qui" id="qui"></div>
 </header>
@@ -86,6 +87,21 @@
     <div class="recap-cadre" id="r-contenu"></div>
   </section>
 
+  <section id="admin" class="recap" hidden aria-label="Administration">
+    <div class="recap-outils">
+      <div class="segments" role="group" aria-label="Rubrique">
+        <button type="button" class="segment" data-admin="referentiel">Référentiel</button>
+        <button type="button" class="segment" data-admin="responsables">Responsables</button>
+        <button type="button" class="segment" data-admin="personnes">Personnes sans fiche</button>
+        <button type="button" class="segment" data-admin="habituels">Ateliers habituels</button>
+      </div>
+      <label class="case" id="a-archives-l"><input type="checkbox" id="a-archives"> Afficher les éléments archivés</label>
+      <input type="search" id="a-recherche" placeholder="Rechercher une personne" aria-label="Rechercher une personne">
+    </div>
+    <p class="sous" id="a-aide"></p>
+    <div class="recap-cadre admin-cadre" id="a-contenu"></div>
+  </section>
+
   <div class="corps">
     <div class="grille-cadre" id="grille-cadre">
       <div class="grille" id="grille"></div>
@@ -95,7 +111,7 @@
     <aside class="cote" id="volet">
       <section class="carte" id="detail" hidden aria-label="Séance sélectionnée"></section>
       <section class="carte" id="carte-personnes" aria-label="Personnes">
-        <div class="carte-entete"><h2>Personnes</h2><span class="sous">prévu / contrat</span></div>
+        <div class="carte-entete"><h2>Personnes</h2><button type="button" class="lien" id="btn-personne" hidden>+ Personne</button><span class="sous">prévu / contrat</span></div>
         <input type="search" id="recherche" placeholder="Rechercher…" aria-label="Rechercher une personne">
         <label class="case petite"><input type="checkbox" id="filtre-habituels"> Tout le monde (mises à disposition)</label>
         <div id="personnes" class="personnes"></div>
@@ -135,6 +151,25 @@
     <div class="pied">
       <button value="annuler" class="bouton" formnovalidate>Annuler</button>
       <button value="ok" class="bouton principal" id="f-valider">Créer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-personne" class="dialogue petit">
+  <form method="dialog" id="form-personne">
+    <h2 id="dlg-personne-titre">Nouvelle personne sans fiche</h2>
+    <p class="sous">Pour planifier quelqu'un qui n'est pas (encore) dans Suivi des temps. Quand sa fiche sera créée, elle sera rattachée dans Administration et gardera toutes ses séances.</p>
+    <div class="ligne2">
+      <label>Prénom<input type="text" id="fp-prenom" required autocomplete="off"></label>
+      <label>Nom<input type="text" id="fp-nom" autocomplete="off"></label>
+    </div>
+    <fieldset class="liste-cases"><legend>Situation</legend>
+      <label class="case"><input type="radio" name="fp-nature" value="a_venir" checked> Nouveau collaborateur, fiche à venir</label>
+      <label class="case"><input type="radio" name="fp-nature" value="externe"> Externe (intérimaire, prestataire…)</label>
+    </fieldset>
+    <div class="pied">
+      <button value="annuler" class="bouton" formnovalidate>Annuler</button>
+      <button value="ok" class="bouton principal" id="fp-valider">Créer</button>
     </div>
   </form>
 </dialog>

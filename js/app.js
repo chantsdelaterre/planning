@@ -154,6 +154,9 @@
     $('#qui').textContent = libelles[etat.droits.niveau] || '';
     $('#btn-nouvelle').hidden = !peutEcrire();
     $('#btn-fermer').hidden = etat.droits.niveau !== 'complet';
+    $('#onglet-admin').hidden = !['complet', 'consultation'].includes(etat.droits.niveau);
+    $('#btn-personne').hidden = !peutEcrire();
+    if (etat.vue === 'admin' && $('#onglet-admin').hidden) etat.vue = 'general';
     $('#app').hidden = false;
     dessinerSelection();
     await chargerSemaine();
@@ -213,10 +216,10 @@
 
   function dessiner() {
     const sem = etat.sem; if (!sem) return;
-    const recap = etat.vue === 'recap';
-    $('#recap').hidden = !recap;
-    for (const x of ['.outils', '#legende', '.corps']) document.querySelector(x).hidden = recap;
-    if (recap) { $('#panneau-selection').hidden = true; dessinerChoix(); dessinerRecap(); return; }
+    const pleine = etat.vue === 'recap' || etat.vue === 'admin';
+    $('#recap').hidden = etat.vue !== 'recap'; $('#admin').hidden = etat.vue !== 'admin';
+    for (const x of ['.outils', '#legende', '.corps']) document.querySelector(x).hidden = pleine;
+    if (pleine) { $('#panneau-selection').hidden = true; dessinerChoix(); if (etat.vue === 'recap') dessinerRecap(); else dessinerAdmin(); return; }
     const nbJ = joursAffiches();
     const dates = Array.from({ length: nbJ }, (_, i) => D.ajout(etat.lundi, i));
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
@@ -687,6 +690,197 @@
     $('#r-imprimer').onclick = () => window.print();
   }
 
+  // Administration ----------------------------------------------------------------------------
+  const A = { rubrique: 'referentiel', donnees: null, archives: false, q: '' };
+  const lectureSeule = () => etat.droits.niveau !== 'complet';
+  async function rechargerAdmin() {
+    try {
+      const [d, s] = await Promise.all([API.appeler('admin_lire'), API.appeler('session')]);
+      A.donnees = d; etat.ref = s.referentiel; etat.droits = s.droits;
+      etat.selection = new Set([...etat.selection].filter((id) => etat.ref.taches.some((t) => t.id === id)));
+      dessinerSelection();
+    } catch (e) { dire(e.message, true); }
+    dessinerAdmin();
+  }
+  async function adminAgir(action, params, succes) {
+    try { await API.appeler(action, params); if (succes) dire(succes); }
+    catch (e) { dire(e.message, true); }
+    await rechargerAdmin();
+    chargerSemaine();
+  }
+  const nomPers = (id) => { const p = A.donnees.personnes.find((x) => x.id === id); return p ? p.prenom + ' ' + p.nom : '?'; };
+  // Un champ texte qui enregistre quand on le quitte (ou sur Entrée), s'il a changé.
+  function champNom(valeur, enregistrer, attrs) {
+    const i = el('input', Object.assign({ type: 'text', value: valeur, disabled: lectureSeule() }, attrs || {}));
+    const ok = () => { const v = i.value.trim(); if (v && v !== valeur) enregistrer(v); else i.value = valeur; };
+    i.addEventListener('change', ok);
+    i.addEventListener('keydown', (e) => { if (e.key === 'Enter') i.blur(); if (e.key === 'Escape') { i.value = valeur; i.blur(); } });
+    return i;
+  }
+  function boutonArchive(type, x) {
+    if (lectureSeule()) return null;
+    return el('button', { type: 'button', class: 'bouton mini', onclick: () => adminAgir('ref_archiver', { type, id: x.id, archiver: !x.archive }, x.archive ? 'Rétabli.' : 'Archivé.') }, x.archive ? 'Rétablir' : 'Archiver');
+  }
+  function ajout(placeholder, creer) {
+    if (lectureSeule()) return null;
+    const i = el('input', { type: 'text', placeholder });
+    const go = () => { const v = i.value.trim(); if (v) creer(v); };
+    i.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    return el('div', { class: 'ref-ajout' }, i, el('button', { type: 'button', class: 'bouton mini', onclick: go }, 'Ajouter'));
+  }
+
+  function adminReferentiel(z) {
+    const d = A.donnees; const vis = (x) => A.archives || !x.archive;
+    const gauche = el('div', {}), droite = el('div', {});
+    gauche.append(el('h3', {}, 'Activités, ateliers et tâches'));
+    for (const ac of d.activites.filter(vis)) {
+      const bloc = el('div', { class: 'ref-activite' + (ac.archive ? ' ref-archive' : '') },
+        el('div', { class: 'ref-ligne' }, champNom(ac.nom, (v) => adminAgir('ref_enregistrer', { type: 'activite', id: ac.id, nom: v }, 'Activité renommée.'), { 'aria-label': 'Nom de l\'activité' }), boutonArchive('activite', ac)));
+      for (const at of d.ateliers.filter((a) => a.activite_id === ac.id && vis(a))) {
+        const soc = el('select', { 'aria-label': 'Société', disabled: lectureSeule(), onchange: (e) => adminAgir('ref_enregistrer', { type: 'atelier', id: at.id, societe: e.target.value }, 'Société changée (pour les séances créées désormais).') },
+          ...d.societes.map((x) => el('option', { value: x.code, selected: x.code === at.societe }, x.code)));
+        const coul = el('input', { type: 'color', value: at.couleur, disabled: lectureSeule(), 'aria-label': 'Couleur', onchange: (e) => adminAgir('ref_enregistrer', { type: 'atelier', id: at.id, couleur: e.target.value.toUpperCase() }) });
+        const dem = el('label', { class: 'case petite', title: 'Coché d\'office dans la sélection d\'un nouvel utilisateur' },
+          el('input', { type: 'checkbox', checked: at.au_demarrage, disabled: lectureSeule(), onchange: (e) => adminAgir('ref_enregistrer', { type: 'atelier', id: at.id, au_demarrage: e.target.checked }) }), 'sélection par défaut');
+        const blocAt = el('div', { class: 'ref-atelier' + (at.archive ? ' ref-archive' : ''), style: 'border-left-color:' + at.couleur },
+          el('div', { class: 'ref-ligne' }, coul, champNom(at.nom, (v) => adminAgir('ref_enregistrer', { type: 'atelier', id: at.id, nom: v }, 'Atelier renommé.'), { 'aria-label': 'Nom de l\'atelier' }), soc, dem, boutonArchive('atelier', at)));
+        const lt = el('div', { class: 'ref-taches' });
+        for (const t of d.taches.filter((x) => x.atelier_id === at.id && vis(x))) {
+          const rg = el('select', { 'aria-label': 'Regroupement', disabled: lectureSeule(), onchange: (e) => adminAgir('ref_enregistrer', { type: 'tache', id: t.id, regroupement_id: e.target.value || null }) },
+            el('option', { value: '' }, '— sans regroupement —'), ...d.regroupements.filter((r) => !r.archive || r.id === t.regroupement_id).map((r) => el('option', { value: r.id, selected: r.id === t.regroupement_id }, r.nom)));
+          const dep = el('select', { 'aria-label': 'Atelier', disabled: lectureSeule(), title: 'Déplacer la tâche vers un autre atelier', onchange: (e) => { if (confirm('Déplacer « ' + t.nom + ' » vers l\'atelier « ' + e.target.selectedOptions[0].textContent + ' » ? Ses séances passées gardent leur société.')) adminAgir('ref_enregistrer', { type: 'tache', id: t.id, atelier_id: +e.target.value }, 'Tâche déplacée.'); else e.target.value = String(at.id); } },
+            ...d.ateliers.filter((a) => !a.archive || a.id === at.id).map((a) => el('option', { value: a.id, selected: a.id === at.id }, a.nom)));
+          lt.append(el('div', { class: 'ref-ligne' + (t.archive ? ' ref-archive' : '') },
+            champNom(t.nom, (v) => adminAgir('ref_enregistrer', { type: 'tache', id: t.id, nom: v }, 'Tâche renommée.'), { 'aria-label': 'Nom de la tâche' }),
+            rg, dep, el('span', { class: 'mini-info' }, t.seances + ' séance' + (t.seances > 1 ? 's' : '')), boutonArchive('tache', t)));
+        }
+        lt.append(ajout('Nouvelle tâche de « ' + at.nom + ' »', (v) => adminAgir('ref_enregistrer', { type: 'tache', atelier_id: at.id, nom: v }, 'Tâche créée.')));
+        blocAt.append(lt); bloc.append(blocAt);
+      }
+      bloc.append(ajout('Nouvel atelier dans « ' + ac.nom + ' » (société SAS par défaut, modifiable ensuite)', (v) => adminAgir('ref_enregistrer', { type: 'atelier', activite_id: ac.id, nom: v, societe: 'SAS' }, 'Atelier créé.')));
+      gauche.append(bloc);
+    }
+    gauche.append(ajout('Nouvelle activité', (v) => adminAgir('ref_enregistrer', { type: 'activite', nom: v }, 'Activité créée.')));
+    droite.append(el('h3', {}, 'Regroupements'), el('p', { class: 'sous' }, 'Partagés entre ateliers : une tâche de n\'importe quel atelier peut y être rangée.'));
+    for (const r of d.regroupements.filter(vis)) {
+      droite.append(el('div', { class: 'ref-ligne' + (r.archive ? ' ref-archive' : '') },
+        champNom(r.nom, (v) => adminAgir('ref_enregistrer', { type: 'regroupement', id: r.id, nom: v }, 'Regroupement renommé.')),
+        el('span', { class: 'mini-info' }, ((n) => n + ' tâche' + (n > 1 ? 's' : ''))(d.taches.filter((t) => t.regroupement_id === r.id && !t.archive).length)), boutonArchive('regroupement', r)));
+    }
+    droite.append(ajout('Nouveau regroupement', (v) => adminAgir('ref_enregistrer', { type: 'regroupement', nom: v }, 'Regroupement créé.')));
+    z.append(el('div', { class: 'ref-grille' }, gauche, droite));
+  }
+
+  function adminResponsables(z) {
+    const d = A.donnees;
+    const avecFiche = d.personnes.filter((p) => !p.sans_fiche).sort((a, b) => b.active - a.active || (a.prenom + a.nom).localeCompare(b.prenom + b.nom));
+    const tb = el('tbody');
+    for (const at of d.ateliers.filter((a) => !a.archive)) {
+      const resp = d.responsables.filter((r) => r[0] === at.id).map((r) => r[1]);
+      const ajouter = lectureSeule() ? null : el('select', { class: 'champ', 'aria-label': 'Ajouter un responsable à ' + at.nom, onchange: (e) => { if (e.target.value) adminAgir('responsable', { atelier_id: at.id, personne_id: +e.target.value }, 'Responsable ajouté.'); } },
+        el('option', { value: '' }, '+ Ajouter…'), ...avecFiche.filter((p) => !resp.includes(p.id)).map((p) => el('option', { value: p.id }, p.prenom + ' ' + p.nom + (p.active ? '' : ' (inactif)'))));
+      tb.append(el('tr', {},
+        el('td', {}, el('span', { class: 'tache-nom' }, el('span', { class: 'pastille', style: 'background:' + at.couleur }), at.nom), el('div', { class: 'sous' }, at.societe)),
+        el('td', {}, el('div', { class: 'ref-ligne' }, ...resp.map((pid) => el('span', { class: 'puce-p' }, nomPers(pid),
+          lectureSeule() ? null : el('button', { type: 'button', 'aria-label': 'Retirer ' + nomPers(pid), onclick: () => adminAgir('responsable', { atelier_id: at.id, personne_id: pid, ajouter: false }, 'Responsable retiré.') }, '×'))),
+          resp.length ? null : el('span', { class: 'sous' }, 'Aucun'), ajouter))));
+    }
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Atelier'), el('th', {}, 'Responsables'))), tb));
+  }
+
+  function adminPersonnes(z) {
+    const d = A.donnees;
+    const q = A.q.trim().toLowerCase();
+    const sans = d.personnes.filter((p) => p.sans_fiche && (A.archives || !p.archive) && (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q)));
+    const avecFiche = d.personnes.filter((p) => !p.sans_fiche).sort((a, b) => (a.prenom + a.nom).localeCompare(b.prenom + b.nom));
+    if (!lectureSeule()) z.append(el('div', { class: 'boutons', style: 'margin:0 0 12px' }, el('button', { type: 'button', class: 'bouton principal', onclick: () => ouvrirPersonne() }, '+ Personne sans fiche')));
+    if (!sans.length) { z.append(el('p', { class: 'vide' }, 'Aucune personne sans fiche.')); return; }
+    const tb = el('tbody');
+    for (const p of sans) {
+      const sugg = (p.suggestions || []).map((id) => avecFiche.find((x) => x.id === id)).filter(Boolean);
+      const cible = el('select', { class: 'champ', 'aria-label': 'Rattacher ' + p.prenom + ' à', disabled: lectureSeule() },
+        el('option', { value: '' }, sugg.length ? '— choisir (suggestion ci-dessous) —' : '— choisir la personne qui a une fiche —'),
+        sugg.length ? el('optgroup', { label: 'Même nom' }, ...sugg.map((x) => el('option', { value: x.id }, x.prenom + ' ' + x.nom + (x.active ? '' : ' (pas encore active)')))) : null,
+        el('optgroup', { label: 'Toutes les personnes avec fiche' }, ...avecFiche.map((x) => el('option', { value: x.id }, x.prenom + ' ' + x.nom + (x.active ? '' : ' (inactive)')))));
+      if (sugg.length === 1) cible.value = String(sugg[0].id);
+      const nature = el('select', { class: 'champ', 'aria-label': 'Situation', disabled: lectureSeule(), onchange: (e) => adminAgir('personne_modifier', { personne_id: p.id, nature: e.target.value }) },
+        el('option', { value: 'a_venir', selected: p.nature !== 'externe' }, 'À venir'), el('option', { value: 'externe', selected: p.nature === 'externe' }, 'Externe'));
+      tb.append(el('tr', { class: p.archive ? 'ref-archive' : '' },
+        el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, 'créée le ' + D.court((p.cree_le || '').slice(0, 10)))),
+        el('td', {}, nature),
+        el('td', { class: 'nb' }, String(p.seances)),
+        el('td', {}, lectureSeule() ? null : el('div', { class: 'ref-ligne' }, cible, el('button', { type: 'button', class: 'bouton mini principal', onclick: () => {
+          if (!cible.value) { dire('Choisis la personne qui a maintenant une fiche.', true); return; }
+          const nomC = cible.selectedOptions[0].textContent;
+          if (confirm('Rattacher « ' + p.prenom + ' ' + p.nom + ' » à « ' + nomC + ' » ?\n\nSes ' + p.seances + ' séance(s) passent sur cette personne et la personne provisoire disparaît. Ce n\'est pas réversible.')) adminAgir('personne_rattacher', { source: p.id, cible: +cible.value }, 'Rattachement fait.');
+        } }, 'Rattacher'))),
+        el('td', {}, lectureSeule() ? null : el('div', { class: 'ref-ligne' },
+          el('button', { type: 'button', class: 'bouton mini', onclick: () => ouvrirPersonne(p) }, 'Renommer'),
+          el('button', { type: 'button', class: 'bouton mini', onclick: () => adminAgir('personne_archiver', { personne_id: p.id, archiver: !p.archive }, p.archive ? 'Rétablie.' : 'Archivée : elle n\'est plus proposée.') }, p.archive ? 'Rétablir' : 'Archiver')))));
+    }
+    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Situation'), el('th', { class: 'nb' }, 'Séances'), el('th', {}, 'Rattacher à sa fiche'), el('th', {}, ''))), tb));
+  }
+
+  function adminHabituels(z) {
+    const d = A.donnees;
+    const ateliers = d.ateliers.filter((a) => !a.archive);
+    const q = A.q.trim().toLowerCase();
+    const gens = d.personnes.filter((p) => (p.active || (p.sans_fiche && !p.archive)) && (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q)));
+    const peut = (at) => !lectureSeule() || etat.droits.ateliers.includes(at.id);
+    const tb = el('tbody');
+    for (const p of gens) {
+      tb.append(el('tr', {}, el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, p.sans_fiche ? 'sans fiche' : (p.societes || []).join(' + '))),
+        ...ateliers.map((at) => {
+          const coche = d.habituels.some((h) => h[0] === p.id && h[1] === at.id);
+          return el('td', { class: 'c' }, el('input', { type: 'checkbox', checked: coche, disabled: !peut(at), 'aria-label': p.prenom + ' ' + p.nom + ' · ' + at.nom,
+            onchange: (e) => adminAgir('habituel', { personne_id: p.id, atelier_id: at.id, ajouter: e.target.checked }) }));
+        })));
+    }
+    z.append(el('table', { class: 'matrice' }, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'),
+      ...ateliers.map((at) => el('th', { class: 'at' }, el('span', { class: 'pastille', style: 'background:' + at.couleur }), ' ', at.nom)))), tb));
+  }
+
+  const AIDES = {
+    referentiel: 'Un nom se modifie en cliquant dessus (Entrée pour valider). Ce qui a servi s\'archive au lieu de se supprimer : l\'historique reste intact. Changer la société d\'un atelier ne touche que les séances créées ensuite.',
+    responsables: 'Un responsable crée et modifie les séances de ses ateliers, avec son propre lien de Suivi des temps.',
+    personnes: 'Quand la fiche d\'une personne à venir est créée dans Suivi des temps, rattache-la ici : toutes ses séances passent sur sa fiche.',
+    habituels: 'Les ateliers habituels d\'une personne la font apparaître dans le volet « Personnes » quand ces ateliers sont sélectionnés. Ce n\'est pas une restriction.',
+  };
+  function dessinerAdmin() {
+    for (const b of document.querySelectorAll('[data-admin]')) b.classList.toggle('actif', b.dataset.admin === A.rubrique);
+    $('#a-aide').textContent = AIDES[A.rubrique];
+    $('#a-archives-l').hidden = !['referentiel', 'personnes'].includes(A.rubrique);
+    $('#a-recherche').hidden = !['personnes', 'habituels'].includes(A.rubrique);
+    const z = $('#a-contenu'); z.replaceChildren();
+    if (!A.donnees) { z.append(el('p', { class: 'vide' }, 'Chargement…')); rechargerAdmin(); return; }
+    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels })[A.rubrique](z);
+  }
+
+  // Personne sans fiche : création (volet ou administration) et renommage.
+  let personneEditee = null;
+  function ouvrirPersonne(p) {
+    personneEditee = p || null;
+    $('#dlg-personne-titre').textContent = p ? 'Renommer' : 'Nouvelle personne sans fiche';
+    $('#fp-valider').textContent = p ? 'Enregistrer' : 'Créer';
+    $('#fp-prenom').value = p ? p.prenom : ''; $('#fp-nom').value = p ? p.nom : '';
+    for (const r of document.querySelectorAll('[name=fp-nature]')) r.checked = r.value === ((p && p.nature) || 'a_venir');
+    $('#dlg-personne').showModal();
+  }
+  async function validerPersonne() {
+    const q = { prenom: $('#fp-prenom').value.trim(), nom: $('#fp-nom').value.trim(), nature: document.querySelector('[name=fp-nature]:checked').value };
+    if (!q.prenom) { dire('Le prénom est obligatoire.', true); return; }
+    if (personneEditee) { await adminAgir('personne_modifier', Object.assign({ personne_id: personneEditee.id }, q), 'Personne modifiée.'); return; }
+    const r = await agir('personne_creer', q, q.prenom + ' est créé·e : glisse son nom sur une séance.');
+    if (r && etat.vue === 'admin') rechargerAdmin();
+  }
+  function brancherAdmin() {
+    for (const b of document.querySelectorAll('[data-admin]')) b.onclick = () => { A.rubrique = b.dataset.admin; dessinerAdmin(); };
+    $('#a-archives').onchange = (e) => { A.archives = e.target.checked; dessinerAdmin(); };
+    $('#a-recherche').oninput = (e) => { A.q = e.target.value; dessinerAdmin(); };
+    $('#btn-personne').onclick = () => ouvrirPersonne();
+    $('#dlg-personne').addEventListener('close', () => { if ($('#dlg-personne').returnValue === 'ok') validerPersonne(); });
+  }
+
   // Personnes ------------------------------------------------------------------------------
   // Personnes « de la sélection » : une fiche dans la société d'un atelier coché, un atelier
   // habituel coché, déjà prévue cette semaine sur la sélection, ou externe.
@@ -713,7 +907,7 @@
     const liste = etat.sem.personnes.filter((p) => (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q))
       && (etat.toutLeMonde || etat.vue === 'personne' || dansSelection(p, etat.vue === 'activite' ? new Set(etat.ref.taches.filter((t) => tachesCible().includes(t.id)).map((t) => t.atelier_id)) : ateliers)));
     for (const p of liste) {
-      const contrat = p.externe ? 'Externe' : p.fiches.map((f) => `${f.contrat}${f.heures_hebdo ? ' ' + f.heures_hebdo + ' h' : ''} · ${f.societe}`).join(' + ');
+      const contrat = p.externe ? (p.nature === 'a_venir' ? 'À venir · sans fiche' : 'Externe · sans fiche') : p.fiches.map((f) => `${f.contrat}${f.heures_hebdo ? ' ' + f.heures_hebdo + ' h' : ''} · ${f.societe}`).join(' + ');
       const ref = p.fiches.reduce((a, f) => a + (+f.heures_hebdo || 0), 0);
       const pct = ref ? Math.min(100, (p.prevu_h / ref) * 100) : 0;
       const courante = etat.vue === 'personne' && p.id === etat.personne;
@@ -758,7 +952,7 @@
       lp.append(el('div', { class: 'ligne-pers' },
         el('span', {}, p.prenom + ' ' + p.nom),
         p.mad ? el('span', { class: 'etiquette' }, 'mise à disposition') : null,
-        !p.collab_id ? el('span', { class: 'etiquette' }, 'externe') : null,
+        !p.collab_id ? el('span', { class: 'etiquette sans-fiche' }, 'sans fiche') : null,
         conflits.has(p.personne_id) ? el('span', { class: 'note' }, 'prévue ailleurs') : null,
         edit ? el('button', { class: 'bouton mini retirer', 'aria-label': 'Retirer ' + p.prenom, onclick: () => agir('retirer', { seance_id: s.id, personne_id: p.personne_id }, 'Personne retirée.') }, 'Retirer') : null));
     }
@@ -880,6 +1074,7 @@
     $('#choix').onchange = (e) => { if (e.target.value) changerVue(etat.vue, e.target.value); };
     brancherVolet();
     brancherRecap();
+    brancherAdmin();
     $('#btn-nouvelle').onclick = () => ouvrirNouvelle();
     $('#f-recurrente').onchange = (e) => { $('#f-recurrence').hidden = !e.target.checked; };
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue !== 'ok') return; if (enEdition) validerModification(enEdition); else validerNouvelle(); });
