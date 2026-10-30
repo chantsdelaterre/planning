@@ -36,6 +36,7 @@
   const court5 = (t) => (t || '').slice(0, 5);
   const heures = (x) => { const q = Math.round(x * 4) * 15; const hh = Math.floor(q / 60), mm = q % 60; return hh + ' h' + (mm ? ' ' + String(mm).padStart(2, '0') : ''); };
   const nomP = (p) => p.prenom + (p.nom ? ' ' + p.nom.charAt(0) + '.' : '');
+  const nomSeance = (s) => s.tache + (s.complement ? ' · ' + s.complement : '');
   const teinte = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
 
   const etat = {
@@ -250,12 +251,12 @@
     const b = el('button', {
       class: classes, type: 'button',
       style: `top:${haut + 1}px;height:${Math.max(h - 2, 18)}px;left:calc(${(couloir * 100) / nb}% + 3px);width:calc(${100 / nb}% - 6px);background:${teinte(s.couleur, 0.16)};border-color:${s.couleur};color:#1B211E`,
-      'aria-label': `${s.titre}, ${D.long(trace ? s.date_serie : s.date_seance)}, ${court5(s.heure_debut)} à ${court5(s.heure_fin)}, ${s.personnes.map(nomP).join(', ') || 'personne'}`,
+      'aria-label': `${nomSeance(s)}, ${D.long(trace ? s.date_serie : s.date_seance)}, ${court5(s.heure_debut)} à ${court5(s.heure_fin)}, ${s.personnes.map(nomP).join(', ') || 'personne'}`,
       draggable: modifiable ? 'true' : null,
       'data-seance': s.id,
       onclick: () => { etat.choisie = s.id; dessiner(); },
     },
-      el('span', { class: 't' }, s.titre),
+      el('span', { class: 't' }, nomSeance(s)),
       el('span', { class: 'h' }, court5(s.heure_debut) + '–' + court5(s.heure_fin)),
       h >= 64 ? el('span', { class: 'p' }, s.personnes.map(nomP).join(', ')) : null,
       h >= 50 ? etiq : null);
@@ -301,7 +302,7 @@
       const date = col.dataset.date;
       if (date === s.date_seance && debut === min(s.heure_debut)) return;
       const params = { seance_id: id, date, debut: hhmm(debut), fin: hhmm(debut + duree) };
-      const portee = s.serie_id ? await demanderPortee(`${s.titre} : ${D.long(date)}, ${hhmm(debut)}–${hhmm(debut + duree)}`) : 'seance';
+      const portee = s.serie_id ? await demanderPortee(`${nomSeance(s)} : ${D.long(date)}, ${hhmm(debut)}–${hhmm(debut + duree)}`) : 'seance';
       if (!portee) return;
       etat.choisie = id;
       agir('seance_modifier', Object.assign(params, { portee }), 'Séance déplacée.');
@@ -383,7 +384,7 @@
     z.append(
       el('div', { class: 'carte-entete' }, el('span', { class: 'sous' }, 'Séance'), el('button', { class: 'lien', onclick: () => { etat.choisie = null; dessiner(); } }, 'Fermer')),
       el('span', { class: 'puce', style: `background:${teinte(s.couleur, 0.16)};border-color:${s.couleur}` }, s.atelier + (s.regroupement ? ' › ' + s.regroupement : '')),
-      el('h3', { class: 'detail-titre' }, s.titre),
+      el('h3', { class: 'detail-titre' }, nomSeance(s)),
       el('div', { class: 'sous' }, D.long(s.date_seance) + ' · ', el('span', { class: 'mono' }, court5(s.heure_debut) + ' – ' + court5(s.heure_fin)), s.lieu ? ' · ' + s.lieu : ''),
       el('div', { class: 'chiffres' },
         el('div', { class: 'chiffre' }, el('div', { class: 'sous' }, 'Durée'), el('div', { class: 'v' }, heures(duree))),
@@ -413,12 +414,15 @@
       const fDate = el('input', { type: 'date', value: s.date_seance });
       const fDeb = remplirHeure(el('span'), court5(s.heure_debut));
       const fFin = remplirHeure(el('span'), court5(s.heure_fin));
+      const fCompl = el('input', { type: 'text', value: s.complement || '', placeholder: 'ajouté au nom de la tâche' });
+      const fLieu = el('input', { type: 'text', value: s.lieu || '' });
       z.append(el('div', { class: 'edition' }, el('label', {}, 'Date', fDate), el('label', {}, 'Début', fDeb), el('label', {}, 'Fin', fFin)));
+      z.append(el('div', { class: 'edition deux' }, el('label', {}, 'Complément', fCompl), el('label', {}, 'Lieu', fLieu)));
       z.append(el('div', { class: 'boutons' },
         el('button', { class: 'bouton principal', onclick: async () => {
           if (fFin.valeur <= fDeb.valeur) { dire('La fin doit être après le début.', true); return; }
-          const portee = s.serie_id ? await demanderPortee(`${s.titre} : ${D.long(fDate.value)}, ${fDeb.valeur}–${fFin.valeur}`) : 'seance';
-          if (portee) agir('seance_modifier', { seance_id: s.id, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, portee }, 'Séance modifiée.');
+          const portee = s.serie_id ? await demanderPortee(`${nomSeance(s)} : ${D.long(fDate.value)}, ${fDeb.valeur}–${fFin.valeur}`) : 'seance';
+          if (portee) agir('seance_modifier', { seance_id: s.id, date: fDate.value, debut: fDeb.valeur, fin: fFin.valeur, titre: fCompl.value.trim(), lieu: fLieu.value.trim(), portee }, 'Séance modifiée.');
         } }, 'Enregistrer'),
         s.statut === 'prevue'
           ? el('button', { class: 'bouton', onclick: () => { const motif = prompt('Motif de la suspension (facultatif) :', ''); if (motif !== null) agir('suspendre', { seance_id: s.id, motif }, 'Séance suspendue.'); } }, 'Suspendre')

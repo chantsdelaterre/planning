@@ -120,7 +120,7 @@
     return {
       id: s.id, date_seance: s.date_seance, heure_debut: s.heure_debut, heure_fin: s.heure_fin, duree_h: duree, statut: s.statut, motif: s.motif,
       modifiee: s.modifiee, serie_id: s.serie_id, date_serie: s.date_serie, deplacee: !!(s.serie_id && s.date_serie !== s.date_seance),
-      titre: s.titre || t.nom, lieu: s.lieu, societe: s.societe, tache_id: t.id, tache: t.nom, regroupement_id: t.regroupement_id, regroupement: rg ? rg.nom : null,
+      titre: s.titre || t.nom, complement: s.titre || null, lieu: s.lieu, societe: s.societe, tache_id: t.id, tache: t.nom, regroupement_id: t.regroupement_id, regroupement: rg ? rg.nom : null,
       atelier_id: at.id, atelier: at.nom, couleur: at.couleur, activite_id: at.activite_id, activite: R.activites.find((a) => a.id === at.activite_id).nom,
       nb_personnes: s.personnes.length, main_oeuvre_h: s.statut === 'prevue' ? duree * s.personnes.length : 0,
       trace: !(s.date_seance >= d0 && s.date_seance <= d6), personnes: s.personnes, chevauchements: chev,
