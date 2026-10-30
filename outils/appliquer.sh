@@ -81,7 +81,13 @@ for x in "${a_faire[@]:-}"; do
     echo "insert into planning._migrations (nom, classe, empreinte) values ('$nom', '$classe', '$empreinte');"
   } > "$tmp"
   echo "Application de $nom ($classe)…"
-  "${PSQL[@]}" -1 -f "$tmp"
-  rm -f "$tmp"
+  if ! "${PSQL[@]}" -1 -f "$tmp" 2> "$tmp.err"; then
+    # Message d'erreur sans les lignes DETAIL (qui peuvent contenir des valeurs).
+    msg=$(grep -vE '^(DETAIL|psql:.*DETAIL)' "$tmp.err" | sed -E 's#postgres(ql)?://[^ ]*#[URL masquée]#g' | tr '\n' ' ' | cut -c1-900)
+    echo "::error title=$nom::$msg"
+    rm -f "$tmp" "$tmp.err"; exit 3
+  fi
+  grep -vE '^(DETAIL|psql:.*DETAIL)' "$tmp.err" >&2 || true
+  rm -f "$tmp" "$tmp.err"
   echo "  ok"
 done
