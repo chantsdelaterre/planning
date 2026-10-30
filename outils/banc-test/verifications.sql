@@ -24,6 +24,9 @@ begin
   -- Mais il lit les colonnes prévues.
   perform collab_id, prenom, nom, structure, heures_hebdo from public.collaborateurs limit 1;
   perform date_jour, c1_debut, total_heures from public.jours limit 1;
+  -- …et voit réellement les lignes malgré la RLS.
+  if (select count(*) from public.structures) < 3 then raise exception 'ÉCHEC : RLS masque les structures'; end if;
+  if (select count(*) from public.collaborateurs) < 1 then raise exception 'ÉCHEC : RLS masque les collaborateurs'; end if;
   reset role;
 
   -- anon et authenticated n'ont aucun accès au schéma planning.

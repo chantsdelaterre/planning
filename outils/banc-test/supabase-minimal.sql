@@ -38,3 +38,9 @@ create table public.jours (jour_id text primary key, collab_id text references p
   created_at timestamptz default now());
 
 grant usage on schema public to anon, authenticated, service_role;
+
+-- Comme en production : RLS activée sur les tables de Suivi des temps (rls_auto_enable).
+alter table public.structures enable row level security;
+alter table public.collaborateurs enable row level security;
+alter table public.historique_contrats enable row level security;
+alter table public.jours enable row level security;
