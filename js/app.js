@@ -45,13 +45,16 @@
   const peutEcrire = () => ['complet', 'responsable'].includes(etat.droits.niveau);
   const peutAtelier = (id) => peutEcrire() && etat.droits.ateliers.includes(id);
 
+  // Amplitude possible des séances : 4 h – 21 h. La grille montre 6 h – 19 h, élargie aux séances.
+  const HEURE_MIN = 4, HEURE_MAX = 21;
+
   // Heure au quart d'heure : deux listes (heure, minutes). Le sélecteur natif de Chrome ignore le pas.
   function remplirHeure(cible, valeur) {
     const q = Math.round(min(valeur || '09:00') / 15) * 15;
     const sh = el('select', { 'aria-label': 'Heure' }), sm = el('select', { 'aria-label': 'Minutes' });
-    for (let h = 0; h < 24; h++) sh.append(el('option', { value: String(h).padStart(2, '0') }, String(h).padStart(2, '0') + ' h'));
+    for (let h = HEURE_MIN; h <= HEURE_MAX; h++) sh.append(el('option', { value: String(h).padStart(2, '0') }, String(h).padStart(2, '0') + ' h'));
     for (const m of ['00', '15', '30', '45']) sm.append(el('option', { value: m }, m));
-    sh.value = String(Math.floor(q / 60) % 24).padStart(2, '0'); sm.value = String(q % 60).padStart(2, '0');
+    sh.value = String(Math.min(HEURE_MAX, Math.max(HEURE_MIN, Math.floor(q / 60)))).padStart(2, '0'); sm.value = String(q % 60).padStart(2, '0');
     cible.replaceChildren(sh, sm);
     cible.classList.add('champ-heure');
     Object.defineProperty(cible, 'valeur', { configurable: true, get: () => sh.value + ':' + sm.value });
@@ -145,7 +148,6 @@
     $('#qui').textContent = libelles[etat.droits.niveau] || '';
     $('#btn-nouvelle').hidden = !peutEcrire();
     $('#btn-fermer').hidden = etat.droits.niveau !== 'complet';
-    $('#aide-glisser').hidden = !peutEcrire();
     $('#app').hidden = false;
     dessinerSelection();
     await chargerSemaine();
@@ -282,7 +284,7 @@
     const ou = (ev, decalage, duree) => {
       const r = col.getBoundingClientRect();
       const m = Math.round(((ev.clientY - r.top - decalage) / pxMin + hMin) / 15) * 15;
-      return Math.max(0, Math.min(24 * 60 - duree, m));
+      return Math.max(HEURE_MIN * 60, Math.min(HEURE_MAX * 60 - duree, m));
     };
     col.addEventListener('dragover', (ev) => {
       if (!ev.dataTransfer.types.includes('application/x-seance')) return;
@@ -387,7 +389,6 @@
         el('div', { class: 'chiffre' }, el('div', { class: 'sous' }, 'Durée'), el('div', { class: 'v' }, heures(duree))),
         el('div', { class: 'chiffre' }, el('div', { class: 'sous' }, 'Main-d\'œuvre'), el('div', { class: 'v' }, s.statut === 'prevue' ? heures(s.main_oeuvre_h) : 'Non comptée'),
           el('div', { class: 'sous' }, s.statut === 'prevue' ? heures(duree) + ' × ' + s.nb_personnes : s.motif || 'Suspendue'))),
-      el('div', { class: 'sous' }, s.serie_id ? 'Séance d\'une série hebdomadaire' + (s.modifiee ? ', retouchée à la main' : '') : 'Séance ponctuelle'),
     );
     if (s.deplacee) z.append(el('div', { class: 'note-bloc gris' }, 'Déplacée depuis le ' + D.long(s.date_serie) + '. Les autres séances de la série ne changent pas.'));
     if (s.statut === 'suspendue') z.append(el('div', { class: 'note-bloc gris' }, 'Suspendue' + (s.motif ? ' : ' + s.motif : '') + '. Ces heures ne sont pas comptées.'));
@@ -407,10 +408,6 @@
     }
     z.append(lp);
     if (edit) {
-      const choix = el('select', { 'aria-label': 'Ajouter une personne', style: 'flex:1;min-height:36px;border:1px solid #C9CEC6;border-radius:8px' },
-        el('option', { value: '' }, 'Ajouter une personne…'),
-        etat.sem.personnes.filter((p) => !s.personnes.some((x) => x.personne_id === p.id)).map((p) => el('option', { value: p.id }, p.prenom + ' ' + p.nom)));
-      z.append(el('div', { class: 'boutons' }, choix, el('button', { class: 'bouton mini', onclick: () => { if (choix.value) agir('affecter', { seance_id: s.id, personne_id: +choix.value }, 'Personne ajoutée.'); } }, 'Ajouter')));
 
       // Horaires
       const fDate = el('input', { type: 'date', value: s.date_seance });
@@ -436,7 +433,6 @@
           const fin = D.ajout(s.date_serie, -1);
           if (confirm('Arrêter la série : plus aucune séance à partir du ' + D.long(s.date_serie) + ' ? Les séances passées restent.')) agir('serie_arreter', { serie_id: s.serie_id, date_fin: fin }, 'Série arrêtée.');
         } }, 'Arrêter la série ici') : null));
-      z.append(el('p', { class: 'aide' }, 'Astuce : glisse le bloc dans la grille pour le déplacer.'));
     }
   }
 
@@ -481,6 +477,7 @@
     $('#sel-tout').onclick = () => { etat.selection = new Set(etat.ref.taches.map((t) => t.id)); garderSelection(); dessinerSelection(); dessiner(); };
     $('#sel-rien').onclick = () => { etat.selection = new Set(); garderSelection(); dessinerSelection(); dessiner(); };
     $('#btn-imprimer').onclick = () => window.print();
+    brancherVolet();
     $('#btn-nouvelle').onclick = ouvrirNouvelle;
     $('#f-recurrente').onchange = (e) => { $('#f-recurrence').hidden = !e.target.checked; };
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue === 'ok') validerNouvelle(); });
@@ -503,6 +500,39 @@
     $('#dlg-fermer').addEventListener('close', () => {
       if ($('#dlg-fermer').returnValue !== 'ok') return;
       agir('jour_fermer', { date: $('#fj-date').value, societe: $('#fj-societe').value || null, motif: $('#fj-motif').value }, 'Journée fermée.');
+    });
+  }
+
+  // Volet droit : largeur réglable au glisser, masquable ; réglages gardés dans ce navigateur.
+  function brancherVolet() {
+    const racine = document.documentElement, volet = $('#volet'), sep = $('#separateur'), btn = $('#btn-volet');
+    const lire = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+    const ecrire = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* rien */ } };
+    const appliquer = (masque) => {
+      volet.hidden = masque; sep.hidden = masque;
+      btn.textContent = masque ? 'Afficher le volet' : 'Masquer le volet';
+      btn.setAttribute('aria-expanded', String(!masque));
+    };
+    const largeur = (px) => {
+      const max = Math.max(260, Math.round(window.innerWidth * 0.5));
+      const l = Math.max(240, Math.min(max, px));
+      racine.style.setProperty('--largeur-volet', l + 'px');
+      return l;
+    };
+    largeur(+lire('planning_volet_largeur', 320));
+    appliquer(lire('planning_volet_masque', '0') === '1');
+    btn.onclick = () => { const m = !volet.hidden; appliquer(m); ecrire('planning_volet_masque', m ? '1' : '0'); };
+    sep.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault(); sep.setPointerCapture(ev.pointerId); sep.classList.add('actif');
+      const bougerVers = (e) => largeur(window.innerWidth - e.clientX - 24);
+      const fin = (e) => { sep.classList.remove('actif'); sep.removeEventListener('pointermove', bougerVers); sep.removeEventListener('pointerup', fin);
+        ecrire('planning_volet_largeur', String(largeur(window.innerWidth - e.clientX - 24))); };
+      sep.addEventListener('pointermove', bougerVers); sep.addEventListener('pointerup', fin);
+    });
+    sep.addEventListener('keydown', (ev) => {
+      const cur = parseInt(getComputedStyle(racine).getPropertyValue('--largeur-volet'), 10) || 320;
+      if (ev.key === 'ArrowLeft') ecrire('planning_volet_largeur', String(largeur(cur + 20)));
+      if (ev.key === 'ArrowRight') ecrire('planning_volet_largeur', String(largeur(cur - 20)));
     });
   }
 

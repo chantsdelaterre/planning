@@ -39,6 +39,7 @@
       <button class="bouton" id="btn-selection" aria-expanded="false">Sélection</button>
       <button class="bouton" id="btn-fermer" hidden>Fermer une journée</button>
       <button class="bouton" id="btn-imprimer">Imprimer</button>
+      <button class="bouton" id="btn-volet" aria-controls="volet" aria-expanded="true">Masquer le volet</button>
       <button class="bouton principal" id="btn-nouvelle" hidden>+ Nouvelle séance</button>
     </div>
   </div>
@@ -62,15 +63,15 @@
     <div class="grille-cadre" id="grille-cadre">
       <div class="grille" id="grille"></div>
     </div>
-    <aside class="cote">
+    <div class="separateur" id="separateur" role="separator" aria-orientation="vertical" aria-label="Largeur du volet (glisser)" tabindex="0"></div>
+    <aside class="cote" id="volet">
+      <section class="carte" id="detail" hidden aria-label="Séance sélectionnée"></section>
       <section class="carte" id="carte-personnes" aria-label="Personnes">
         <div class="carte-entete"><h2>Personnes</h2><span class="sous">prévu / contrat</span></div>
-        <p class="aide" id="aide-glisser">Glisse un nom sur une séance pour l'affecter. Sont proposées les personnes de la sélection.</p>
         <input type="search" id="recherche" placeholder="Rechercher…" aria-label="Rechercher une personne">
         <label class="case petite"><input type="checkbox" id="filtre-habituels"> Tout le monde (mises à disposition)</label>
         <div id="personnes" class="personnes"></div>
       </section>
-      <section class="carte" id="detail" hidden aria-label="Séance sélectionnée"></section>
     </aside>
   </div>
 </main>
