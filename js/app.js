@@ -34,13 +34,13 @@
   const min = (t) => { const [a, b] = t.split(':'); return +a * 60 + +b; };
   const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   const court5 = (t) => (t || '').slice(0, 5);
-  const heures = (x) => (Math.round(x * 10) / 10).toString().replace('.', ',') + ' h';
+  const heures = (x) => { const q = Math.round(x * 4) * 15; const hh = Math.floor(q / 60), mm = q % 60; return hh + ' h' + (mm ? ' ' + String(mm).padStart(2, '0') : ''); };
   const nomP = (p) => p.prenom + (p.nom ? ' ' + p.nom.charAt(0) + '.' : '');
   const teinte = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
 
   const etat = {
     droits: null, ref: null, lundi: D.lundiDe(D.aujourdhui()), sem: null,
-    selection: null, dimanche: false, choisie: null, recherche: '', habituels: false,
+    selection: null, dimanche: false, choisie: null, recherche: '', toutLeMonde: false,
   };
   const peutEcrire = () => ['complet', 'responsable'].includes(etat.droits.niveau);
   const peutAtelier = (id) => peutEcrire() && etat.droits.ateliers.includes(id);
@@ -173,6 +173,7 @@
 
   function dessiner() {
     const sem = etat.sem; if (!sem) return;
+    ajusterHauteur();
     const nbJ = joursAffiches();
     const dates = Array.from({ length: nbJ }, (_, i) => D.ajout(etat.lundi, i));
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
@@ -186,7 +187,7 @@
       if (s.deplacee && s.date_serie >= etat.lundi && s.date_serie <= D.ajout(etat.lundi, 6)) blocs.push({ s, date: s.date_serie, trace: true });
     }
     const [hMin, hMax] = bornes(seances);
-    const pxMin = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--heure')) / 60;
+    const pxMin = pixelsParMinute(hMax - hMin);
     const hauteur = (hMax - hMin) * pxMin;
 
     const g = $('#grille'); g.replaceChildren();
@@ -208,7 +209,7 @@
     for (const d of dates) {
       const f = fermes.find((x) => x.date === d && !x.societe);
       const col = el('div', { class: 'col-jour' + (f ? ' ferme' : ''), style: 'height:' + hauteur + 'px', 'data-date': d });
-      for (let m = hMin + 60; m < hMax; m += 60) col.append(el('div', { class: 'ligne-heure', style: 'top:' + (m - hMin) * pxMin + 'px' }));
+      for (let m = hMin + 15; m < hMax; m += 15) col.append(el('div', { class: 'ligne-heure' + (m % 60 === 0 ? '' : m % 30 === 0 ? ' demi' : ' quart'), style: 'top:' + (m - hMin) * pxMin + 'px' }));
       for (const c of couloirs(blocs.filter((b) => b.date === d).map((b) => Object.assign({}, b.s, { _trace: b.trace })))) {
         col.append(blocSeance(c.s, c.couloir, c.nb, hMin, pxMin));
       }
@@ -318,12 +319,35 @@
   }
 
   // Personnes ------------------------------------------------------------------------------
+  // Personnes « de la sélection » : une fiche dans la société d'un atelier coché, un atelier
+  // habituel coché, déjà prévue cette semaine sur la sélection, ou externe.
+  function dansSelection(p, ateliers) {
+    const societes = new Set(etat.ref.ateliers.filter((a) => ateliers.has(a.id)).map((a) => a.societe));
+    if (p.externe) return true;
+    if (p.fiches.some((f) => societes.has(f.societe))) return true;
+    if (p.ateliers_habituels.some((a) => ateliers.has(a))) return true;
+    return etat.sem.seances.some((s) => visible(s) && s.personnes.some((x) => x.personne_id === p.id));
+  }
+
+  // La grille remplit la hauteur de l'écran : une heure fait au moins 40 px.
+  function pixelsParMinute(minutes) {
+    const cadre = $('#grille-cadre');
+    if (window.innerWidth <= 720 || !cadre) return 52 / 60;
+    const dispo = cadre.clientHeight - 64;  // moins l'en-tête des jours
+    return Math.max(40 / 60, dispo / minutes);
+  }
+  function ajusterHauteur() {
+    const corps = $('.corps'); if (!corps || $('#app').hidden) return;
+    const h = Math.max(420, window.innerHeight - corps.getBoundingClientRect().top - 16);
+    document.documentElement.style.setProperty('--hauteur-corps', h + 'px');
+  }
+
   function dessinerPersonnes() {
     const zone = $('#personnes'); zone.replaceChildren();
     const q = etat.recherche.trim().toLowerCase();
     const ateliers = ateliersSelectionnes();
     const liste = etat.sem.personnes.filter((p) => (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q))
-      && (!etat.habituels || p.ateliers_habituels.some((a) => ateliers.has(a))));
+      && (etat.toutLeMonde || dansSelection(p, ateliers)));
     for (const p of liste) {
       const contrat = p.externe ? 'Externe' : p.fiches.map((f) => `${f.contrat}${f.heures_hebdo ? ' ' + f.heures_hebdo + ' h' : ''} · ${f.societe}`).join(' + ');
       const ref = p.fiches.reduce((a, f) => a + (+f.heures_hebdo || 0), 0);
@@ -454,7 +478,8 @@
     $('#f-recurrente').onchange = (e) => { $('#f-recurrence').hidden = !e.target.checked; };
     $('#dlg-seance').addEventListener('close', () => { if ($('#dlg-seance').returnValue === 'ok') validerNouvelle(); });
     $('#recherche').oninput = (e) => { etat.recherche = e.target.value; dessinerPersonnes(); };
-    $('#filtre-habituels').onchange = (e) => { etat.habituels = e.target.checked; dessinerPersonnes(); };
+    $('#filtre-habituels').onchange = (e) => { etat.toutLeMonde = e.target.checked; dessinerPersonnes(); };
+    let attente; window.addEventListener('resize', () => { clearTimeout(attente); attente = setTimeout(() => { ajusterHauteur(); dessiner(); }, 120); });
     $('#btn-fermer').onclick = () => {
       const sel = $('#fj-societe');
       if (sel.options.length === 1) [...new Set(etat.ref.ateliers.map((a) => a.societe))].forEach((s) => sel.append(el('option', { value: s }, s)));

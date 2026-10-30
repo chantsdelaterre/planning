@@ -60,7 +60,15 @@ button, input, select { font: inherit; color: inherit; }
 .alerte { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; background: var(--rouge-fond); color: #8A1C14; font-size: 13px; font-weight: 600; }
 
 /* Corps */
-.corps { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 24px 32px; align-items: flex-start; }
+.corps { display: flex; flex-wrap: wrap; gap: 16px; padding: 0 24px 16px; align-items: stretch; }
+@media (min-width: 721px) {
+  .corps { height: var(--hauteur-corps, 75vh); flex-wrap: nowrap; }
+  .grille-cadre { height: 100%; overflow: auto; }
+  .cote { height: 100%; min-height: 0; }
+  #carte-personnes { flex: 1 1 50%; min-height: 0; display: flex; flex-direction: column; }
+  #carte-personnes .personnes { flex: 1 1 auto; max-height: none; min-height: 0; }
+  #detail { flex: 1 1 50%; min-height: 0; overflow-y: auto; }
+}
 .grille-cadre { flex: 999 1 760px; min-width: 0; background: var(--carte); border: 1px solid var(--trait); border-radius: 10px; overflow-x: auto; }
 .grille { min-width: 940px; display: grid; }
 .entete-jour { padding: 10px 10px 8px; border-left: 1px solid var(--trait); border-bottom: 1px solid var(--trait); position: sticky; top: 0; background: var(--carte); z-index: 3; }
@@ -73,7 +81,9 @@ button, input, select { font: inherit; color: inherit; }
 .col-jour { position: relative; border-left: 1px solid var(--trait); }
 .col-jour.ferme { background: repeating-linear-gradient(135deg, #F6F6F3 0 8px, #ECEDE8 8px 16px); }
 .col-jour.survol { background: #EEF5F0; }
-.ligne-heure { position: absolute; left: 0; right: 0; border-top: 1px solid var(--trait-2); pointer-events: none; }
+.ligne-heure { position: absolute; left: 0; right: 0; border-top: 1px solid #DCDFD8; pointer-events: none; }
+.ligne-heure.demi { border-top: 1px dashed #E6E8E3; }
+.ligne-heure.quart { border-top: 1px dotted #EEF0EB; }
 .seance { position: absolute; margin: 0; border-radius: 6px; padding: 5px 7px; overflow: hidden; text-align: left; display: flex; flex-direction: column; gap: 2px; cursor: pointer; border: 1px solid; font-size: 12px; line-height: 1.25; }
 .seance.modifiable { cursor: grab; }
 .seance.choisie { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--encre); z-index: 2; }
@@ -89,7 +99,7 @@ button, input, select { font: inherit; color: inherit; }
 .fantome { position: absolute; left: 3px; right: 3px; border: 2px dashed var(--vert); border-radius: 6px; background: rgba(47,107,79,.08); pointer-events: none; z-index: 4; font-size: 11px; padding: 2px 6px; color: var(--vert-fonce); font-family: 'IBM Plex Mono', monospace; }
 
 /* Côté */
-.cote { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.cote { flex: 0 0 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .carte { background: var(--carte); border: 1px solid var(--trait); border-radius: 10px; padding: 14px; }
 .carte-entete { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .carte h2 { margin: 0; font-size: 15px; }
@@ -155,7 +165,8 @@ button, input, select { font: inherit; color: inherit; }
   .barre, .outils .actions, .semaine-nav button, .panneau-selection, .cote, .bandeau-demo, .message { display: none !important; }
   body { background: #fff; }
   .corps, .outils, .legende { padding: 0; }
-  .grille-cadre { border: 0; overflow: visible; }
+  .grille-cadre { border: 0; overflow: visible; height: auto !important; }
+  .corps { height: auto !important; }
   .grille { min-width: 0; }
   .seance { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
