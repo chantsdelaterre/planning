@@ -204,7 +204,7 @@
         lundi: d0, seances: liste,
         jours_fermes: fermes.filter((f) => f.date >= d0 && f.date <= d6),
         indisponibilites: [], chevauchements: [],
-        personnes: P.filter((x) => !x.archive).map((x) => Object.assign({}, x, { prevu_h: prevu[x.id] || 0, nature: x.externe ? x.nature || 'externe' : null }))
+        personnes: P.filter((x) => !x.archive).map((x) => Object.assign({}, x, { prevu_h: prevu[x.id] || 0, nature: x.externe ? x.nature || 'externe' : null, couleur: x.couleur || ['#C62828', '#1565C0', '#2E7D32', '#EF6C00', '#6A1B9A', '#00838F', '#AD1457', '#827717', '#4527A0', '#8D6E63'][(x.id - 1) % 10] }))
           .filter((x) => droits.niveau !== 'collaborateur' || x.id === moi || liste.some((s) => s.personnes.some((y) => y.personne_id === x.id)))
           .map((x) => droits.niveau !== 'collaborateur' || x.id === moi ? x : Object.assign({}, x, { fiches: [], prevu_h: 0, ateliers_habituels: [] })),
       };
@@ -275,10 +275,11 @@
         societes: [{ code: 'SAS', nom: 'SAS (fictive)' }, { code: 'SARL', nom: 'SARL (fictive)' }, { code: 'SCEA', nom: 'SCEA (fictive)' }],
         admins: admins.map((a) => Object.assign({}, a)), liens: liens.slice(), acces_tout: accesTout.slice(), acces_elements: accesElements.slice(), responsables: responsables.slice(), habituels: P.flatMap((x) => x.ateliers_habituels.map((a) => [x.id, a])),
         personnes: P.map((x) => ({ id: x.id, prenom: x.prenom, nom: x.nom, sans_fiche: x.externe, active: !x.externe, societes: x.fiches.map((f) => f.societe),
-          nature: x.externe ? x.nature || 'externe' : null, archive: !!x.archive, seances: S.filter((s) => s.personnes.some((y) => y.personne_id === x.id)).length,
+          nature: x.externe ? x.nature || 'externe' : null, archive: !!x.archive, couleur: x.couleur || ['#C62828', '#1565C0', '#2E7D32', '#EF6C00', '#6A1B9A', '#00838F', '#AD1457', '#827717', '#4527A0', '#8D6E63'][(x.id - 1) % 10], seances: S.filter((s) => s.personnes.some((y) => y.personne_id === x.id)).length,
           suggestions: x.externe ? P.filter((y) => !y.externe && y.id !== x.id && ((sa(x.nom) && sa(y.nom) === sa(x.nom)) || sa(y.prenom) === sa(x.prenom))).map((y) => y.id) : null })),
       };
     },
+    personne_couleur: (q) => { const x = pers(+q.personne_id); x.couleur = q.couleur ? q.couleur.toUpperCase() : null; return {}; },
     personne_creer: (q) => {
       if (!['complet', 'responsable'].includes(droits.niveau)) throw new Error('Réservé aux responsables et aux accès complets');
       if (!(q.prenom || '').trim()) throw new Error('Le prénom est obligatoire');

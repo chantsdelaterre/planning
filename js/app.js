@@ -39,7 +39,13 @@
   const nomSeance = (s) => s.tache + (s.complement ? ' · ' + s.complement : '');
   // Une couleur fixe par personne (la même dans tous les ateliers), choisie dans une palette contrastée.
   // Teintes réparties par l'angle d'or : stables par personne, bien distinctes d'une personne à la suivante.
-  const couleurPersonne = (id) => 'hsl(' + Math.round((id * 137.508) % 360) + ' 62% 40%)';
+  const PALETTE = ['#C62828', '#1565C0', '#2E7D32', '#EF6C00', '#6A1B9A', '#00838F', '#AD1457', '#827717', '#4527A0', '#8D6E63',
+    '#0277BD', '#558B2F', '#D84315', '#00695C', '#880E4F', '#37474F', '#B8860B', '#5D4037', '#7B1FA2', '#1B5E20'];
+  // Couleur gardée dans la base (modifiable dans Administration) ; à défaut, une couleur de la palette.
+  const couleurPersonne = (id) => {
+    const p = etat.sem && etat.sem.personnes.find((x) => x.id === id);
+    return (p && p.couleur) || PALETTE[((id % 20) + 20) % 20];
+  };
   const parPersonne = () => etat.couleurs === 'personne' && etat.vue !== 'personne';
   const teinte = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
 
@@ -182,9 +188,9 @@
     try { const v = JSON.parse(localStorage.getItem('planning_vue') || 'null'); if (v) Object.assign(etat, { vue: v.vue || 'general', personne: v.personne || null, cible: v.cible || null }); } catch (e) { /* rien */ }
     // Un collaborateur arrive sur son propre planning.
     if (etat.droits.niveau === 'collaborateur' && etat.droits.personne_id) { etat.vue = 'personne'; etat.personne = etat.droits.personne_id; }
-    try { etat.dimanche = localStorage.getItem('planning_dimanche') === '1'; etat.couleurs = localStorage.getItem('planning_couleurs') || 'atelier'; etat.equipeMode = localStorage.getItem('planning_equipe') || 'jour'; } catch (e) { /* rien */ }
+    try { etat.joursVides = localStorage.getItem('planning_jours_vides') === '1'; etat.couleurs = localStorage.getItem('planning_couleurs') || 'atelier'; etat.equipeMode = localStorage.getItem('planning_equipe') || 'jour'; } catch (e) { /* rien */ }
     $('#couleurs').value = etat.couleurs;
-    $('#dimanche').checked = etat.dimanche;
+    $('#jours-vides').checked = !!etat.joursVides;
     const libelles = { complet: 'Accès complet', consultation: 'Consultation', responsable: 'Responsable d\'atelier', collaborateur: 'Lecture' };
     $('#qui').textContent = libelles[etat.droits.niveau] || '';
     $('#btn-nouvelle').hidden = !peutEcrire();
@@ -258,8 +264,16 @@
   const heuresVue = (s) => etat.vue === 'personne' ? (s.statut === 'prevue' ? s.duree_h : 0) : s.main_oeuvre_h;
   const personneCourante = () => etat.sem && etat.sem.personnes.find((p) => p.id === etat.personne);
   // Le dimanche s'affiche si la case est cochée, ou d'office dès qu'une séance visible tombe ce jour-là.
-  const dimancheOccupe = () => !!etat.sem && etat.sem.seances.some((s) => visible(s) && (s.date_seance === D.ajout(etat.lundi, 6) || s.date_serie === D.ajout(etat.lundi, 6)));
-  const joursAffiches = () => (etat.dimanche || dimancheOccupe() ? 7 : 6);
+  // Jours affichés : par défaut, seulement ceux qui ont une séance visible (« Jours vides » coché : toute
+  // la semaine). Vue par personne : du lundi au samedi (le réalisé peut tomber un jour sans prévu), dimanche si occupé.
+  const jourOccupe = (d) => !!etat.sem && etat.sem.seances.some((s) => visible(s) && (s.date_seance === d || (s.deplacee && s.date_serie === d)));
+  function datesAffichees() {
+    const toutes = Array.from({ length: 7 }, (_, i) => D.ajout(etat.lundi, i));
+    if (etat.joursVides) return toutes;
+    if (etat.vue === 'personne') return toutes.filter((d, i) => i < 6 || jourOccupe(d));
+    const occ = toutes.filter(jourOccupe);
+    return occ.length ? occ : toutes.slice(0, 5);
+  }
 
   function bornes(seances) {
     let a = 6 * 60, b = 19 * 60;
@@ -288,8 +302,7 @@
     $('#recap').hidden = etat.vue !== 'recap'; $('#admin').hidden = etat.vue !== 'admin';
     for (const x of ['.outils', '#legende', '.corps']) document.querySelector(x).hidden = pleine;
     if (pleine) { $('#panneau-selection').hidden = true; dessinerChoix(); if (etat.vue === 'recap') dessinerRecap(); else dessinerAdmin(); return; }
-    const nbJ = joursAffiches();
-    const dates = Array.from({ length: nbJ }, (_, i) => D.ajout(etat.lundi, i));
+    const dates = datesAffichees(); const nbJ = dates.length;
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
     $('#dates-semaine').textContent = 'du ' + D.long(etat.lundi) + ' au ' + D.long(D.ajout(etat.lundi, 6));
     const pc = personneCourante();
@@ -299,11 +312,11 @@
     $('#grille').hidden = etat.vue === 'activite' || etat.vue === 'equipe'; $('#tableau').hidden = etat.vue !== 'activite'; $('#equipe').hidden = etat.vue !== 'equipe';
     if (etat.vue === 'equipe') {
       const liste = sem.seances.filter((x) => visible(x) && !x.trace && dates.includes(x.date_seance));
-      dessinerEquipe(dates); dessinerLegendeTaches(etat.equipeMode === 'semaine' ? liste : liste.filter((x) => x.date_seance === etat.equipeJour)); dessinerPersonnes(); dessinerDetail();
+      dessinerEquipe(dates); const lj = etat.equipeMode === 'semaine' ? liste : liste.filter((x) => x.date_seance === etat.equipeJour); if (parPersonne()) dessinerLegende(lj); else dessinerLegendeTaches(lj); dessinerPersonnes(); dessinerDetail();
       return;
     }
     if (etat.vue === 'activite') {
-      const liste = sem.seances.filter((x) => visible(x) && !x.trace && x.date_seance <= D.ajout(etat.lundi, nbJ - 1));
+      const liste = sem.seances.filter((x) => visible(x) && !x.trace && dates.includes(x.date_seance));
       dessinerTableau(liste, dates); dessinerLegende(liste); dessinerPersonnes(); dessinerDetail();
       return;
     }
@@ -339,7 +352,7 @@
         } else if (d <= D.aujourdhui() && realiseAJour() && mo > 0) ligneR = el('div', { class: 'mo non-saisi' }, d === D.aujourdhui() ? 'pas encore saisi' : 'non saisi');
       }
       g.append(el('div', { class: 'entete-jour' + (f ? ' ferme' : '') },
-        el('div', {}, el('span', { class: 'nom' }, JOURS[i]), ' ', el('span', { class: 'sous' }, D.court(d))),
+        el('div', {}, el('span', { class: 'nom' }, JOURS[D.jourIso(d) - 1]), ' ', el('span', { class: 'sous' }, D.court(d))),
         el('div', { class: 'mo mono' }, f ? '0 h · fermé' : (enPersonne ? 'P ' : '') + heures(mo) + (etat.vue === 'personne' ? '' : ' de MO')),
         ligneR,
         f ? el('div', { class: 'badge-ferme' }, (f.societe ? f.societe + ' · ' : '') + (f.motif || 'Fermé')) : null));
@@ -399,14 +412,21 @@
       'data-seance': s.id,
       onclick: () => { etat.choisie = s.id; dessiner(); if (modifiable) ouvrirSeance(s); },
     },
-      parPersonne() && s.personnes.length ? el('span', { class: 'bandes', 'aria-hidden': 'true' }, ...s.personnes.map((x) => el('span', { style: 'background:' + couleurPersonne(x.personne_id) }))) : null,
       el('span', { class: 't' }, nomSeance(s)),
       el('span', { class: 'h' }, court5(s.heure_debut) + '–' + court5(s.heure_fin)),
       h >= 64 ? el('span', { class: 'p' }, ...(parPersonne()
-        ? s.personnes.flatMap((x, i) => [i ? ', ' : '', el('span', { class: 'np', style: 'color:' + couleurPersonne(x.personne_id) }, nomP(x))])
+        ? [s.personnes.map(nomP).join(', ') || 'à pourvoir']
         : [s.personnes.map(nomP).join(', ')])) : null,
       h >= 50 ? etiq : null);
-    if (parPersonne()) { b.classList.add('par-personne'); b.style.setProperty('--bandes', (s.personnes.length * 5) + 'px'); }
+    if (parPersonne()) {
+      b.classList.add('par-personne');
+      const cs = s.personnes.map((x) => couleurPersonne(x.personne_id));
+      // Une personne : toute la séance à sa couleur ; plusieurs : des bandes égales ; personne : poste à pourvoir.
+      b.style.background = !cs.length ? 'repeating-linear-gradient(135deg, #F4F5F2 0 8px, #E6E8E3 8px 16px)'
+        : cs.length === 1 ? cs[0] : 'linear-gradient(90deg, ' + cs.map((c, i) => `${c} ${(i * 100) / cs.length}% ${((i + 1) * 100) / cs.length}%`).join(', ') + ')';
+      b.style.borderColor = cs.length ? 'rgba(0,0,0,.25)' : '#8A918C';
+      b.style.color = cs.length ? '#fff' : '#1B211E';
+    }
     if (modifiable) {
       b.addEventListener('dragstart', (ev) => {
         ev.dataTransfer.setData('application/x-seance', JSON.stringify({ id: s.id, decalage: ev.offsetY }));
@@ -478,7 +498,7 @@
   function dessinerLegende(seances) {
     const lg = $('#legende'); lg.replaceChildren();
     const reelles = seances.filter((x) => !x.trace);
-    if (parPersonne() && etat.vue === 'general') {
+    if (parPersonne() && (etat.vue === 'general' || etat.vue === 'equipe')) {
       const h = new Map();
       for (const s of reelles.filter((x) => x.statut === 'prevue')) for (const x of s.personnes) {
         const v = h.get(x.personne_id) || { nom: nomP(x), h: 0 }; v.h += s.duree_h; h.set(x.personne_id, v);
@@ -547,7 +567,7 @@
     // En-tête : Jour / Semaine et choix du jour
     const seg = (v, t) => el('button', { type: 'button', class: 'segment' + (etat.equipeMode === v || (v === 'jour' && jourMode) ? ' actif' : ''), onclick: () => { etat.equipeMode = v; garderEquipe(); dessiner(); } }, t);
     const tete = el('div', { class: 'equipe-tete' }, el('div', { class: 'segments' }, seg('jour', 'Jour'), seg('semaine', 'Semaine')));
-    if (jourMode) tete.append(el('div', { class: 'jours-equipe' }, ...dates.map((d, i) => el('button', { type: 'button', class: 'puce-jour' + (d === etat.equipeJour ? ' actif' : ''), onclick: () => { etat.equipeJour = d; dessiner(); } }, JOURS[i] + ' ' + D.court(d)))));
+    if (jourMode) tete.append(el('div', { class: 'jours-equipe' }, ...dates.map((d, i) => el('button', { type: 'button', class: 'puce-jour' + (d === etat.equipeJour ? ' actif' : ''), onclick: () => { etat.equipeJour = d; dessiner(); } }, JOURS[D.jourIso(d) - 1] + ' ' + D.court(d)))));
     z.append(tete);
     // Personnes : celles qui ont une séance sur la période affichée.
     const gens = new Map();
@@ -574,7 +594,7 @@
         for (const s of siennes) {
           const conflit = (s.chevauchements || []).includes(x.personne_id);
           piste.append(el('button', { type: 'button', class: 'eq-barre' + (s.statut !== 'prevue' ? ' suspendue' : '') + (conflit ? ' alerte' : '') + (etat.choisie === s.id ? ' choisie' : ''),
-            style: `left:${pos(s.heure_debut)}%;width:calc(${pos(s.heure_fin) - pos(s.heure_debut)}% - 3px);background:${couleurTache(s.tache_id)}`,
+            style: `left:${pos(s.heure_debut)}%;width:calc(${pos(s.heure_fin) - pos(s.heure_debut)}% - 3px);background:${etat.couleurs === 'personne' ? couleurPersonne(x.personne_id) : couleurTache(s.tache_id)}`,
             title: nomSeance(s) + ' · ' + court5(s.heure_debut) + '–' + court5(s.heure_fin) + ' · ' + s.atelier, onclick: () => ouvrir(s) },
             el('b', {}, nomSeance(s)), el('span', {}, court5(s.heure_debut) + '–' + court5(s.heure_fin))));
         }
@@ -597,7 +617,7 @@
     } else {
       tb.style.setProperty('--nbj', dates.length);
       tb.append(el('div', { class: 'eq-ligne eq-tete' }, el('div', { class: 'eq-nom' }, 'Personne'),
-        el('div', { class: 'eq-jours' }, ...dates.map((d, i) => el('span', {}, JOURS[i] + ' ' + D.court(d)))), el('div', { class: 'eq-total' }, 'Total')));
+        el('div', { class: 'eq-jours' }, ...dates.map((d) => el('span', {}, JOURS[D.jourIso(d) - 1] + ' ' + D.court(d)))), el('div', { class: 'eq-total' }, 'Total')));
       for (const x of liste) {
         let totS = 0, alerteS = false;
         const cells = dates.map((d) => {
@@ -607,7 +627,7 @@
           if (al.length) alerteS = true;
           totS += prevues.reduce((a, s) => a + s.duree_h, 0);
           return el('div', { class: 'eq-cellule' + (al.length ? ' en-alerte' : ''), title: al.join(' · ') },
-            ...siennes.map((s) => el('button', { type: 'button', class: 'eq-etiquette' + (s.statut !== 'prevue' ? ' suspendue' : '') + (etat.choisie === s.id ? ' choisie' : ''), style: 'background:' + couleurTache(s.tache_id), onclick: () => ouvrir(s), title: nomSeance(s) + ' · ' + s.atelier },
+            ...siennes.map((s) => el('button', { type: 'button', class: 'eq-etiquette' + (s.statut !== 'prevue' ? ' suspendue' : '') + (etat.choisie === s.id ? ' choisie' : ''), style: 'background:' + (etat.couleurs === 'personne' ? couleurPersonne(x.personne_id) : couleurTache(s.tache_id)), onclick: () => ouvrir(s), title: nomSeance(s) + ' · ' + s.atelier },
               el('b', {}, nomSeance(s)), ' ' + court5(s.heure_debut).replace(':00', 'h') + '–' + court5(s.heure_fin).replace(':00', 'h'))));
         });
         tb.append(el('div', { class: 'eq-ligne' + (alerteS ? ' en-alerte' : '') },
@@ -1063,7 +1083,9 @@
     const peut = (at) => !lectureSeule() || etat.droits.ateliers.includes(at.id);
     const tb = el('tbody');
     for (const p of gens) {
-      tb.append(el('tr', {}, el('td', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, p.sans_fiche ? 'sans fiche' : (p.societes || []).join(' + '))),
+      const coul = el('input', { type: 'color', value: (p.couleur || '#666666').toLowerCase(), disabled: lectureSeule(), title: 'Couleur de ' + p.prenom + ' (mode « couleurs par personne »)', 'aria-label': 'Couleur de ' + p.prenom + ' ' + p.nom,
+        onchange: (e) => adminAgir('personne_couleur', { personne_id: p.id, couleur: e.target.value }) });
+      tb.append(el('tr', {}, el('td', {}, el('div', { class: 'ref-ligne' }, coul, el('div', {}, el('strong', {}, p.prenom + ' ' + p.nom), el('div', { class: 'sous' }, p.sans_fiche ? 'sans fiche' : (p.societes || []).join(' + '))))),
         ...ateliers.map((at) => {
           const coche = d.habituels.some((h) => h[0] === p.id && h[1] === at.id);
           return el('td', { class: 'c' }, el('input', { type: 'checkbox', checked: coche, disabled: !peut(at), 'aria-label': p.prenom + ' ' + p.nom + ' · ' + at.nom,
@@ -1499,7 +1521,7 @@
     $('#prec').onclick = () => { etat.lundi = D.ajout(etat.lundi, -7); chargerSemaine(); };
     $('#suiv').onclick = () => { etat.lundi = D.ajout(etat.lundi, 7); chargerSemaine(); };
     $('#auj').onclick = () => { etat.lundi = D.lundiDe(D.aujourdhui()); chargerSemaine(); };
-    $('#dimanche').onchange = (e) => { etat.dimanche = e.target.checked; try { localStorage.setItem('planning_dimanche', etat.dimanche ? '1' : '0'); } catch (x) { /* rien */ } dessiner(); };
+    $('#jours-vides').onchange = (e) => { etat.joursVides = e.target.checked; try { localStorage.setItem('planning_jours_vides', etat.joursVides ? '1' : '0'); } catch (x) { /* rien */ } dessiner(); };
     $('#btn-selection').onclick = () => { const p = $('#panneau-selection'); p.hidden = !p.hidden; $('#btn-selection').setAttribute('aria-expanded', String(!p.hidden)); };
     $('#sel-tout').onclick = () => { etat.selection = new Set(etat.ref.taches.map((t) => t.id)); garderSelection(); dessinerSelection(); dessiner(); };
     $('#sel-rien').onclick = () => { etat.selection = new Set(); garderSelection(); dessinerSelection(); dessiner(); };

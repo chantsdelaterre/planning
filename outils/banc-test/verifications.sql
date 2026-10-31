@@ -777,3 +777,21 @@ begin
   delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 26 : réussie';
+
+-- 27. Couleurs des personnes : d'office (stable), modifiable, renvoyées avec la semaine.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; anna bigint; c text; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  c := (select e->>'couleur' from jsonb_array_elements(public.planning_appel(adm, 'semaine', '{}')->'personnes') e where (e->>'id')::bigint = anna);
+  if c !~ '^#[0-9A-F]{6}$' then raise exception 'ÉCHEC : couleur d''office %', c; end if;
+  r := public.planning_appel(adm, 'personne_couleur', jsonb_build_object('personne_id', anna, 'couleur', '#123abc'));
+  if r->>'couleur' <> '#123ABC' then raise exception 'ÉCHEC : couleur choisie'; end if;
+  perform public.planning_appel(adm, 'personne_couleur', jsonb_build_object('personne_id', anna, 'couleur', ''));
+  if (select couleur_de from planning.couleur_de(anna)) <> c then raise exception 'ÉCHEC : retour à la couleur d''office'; end if;
+  reset role;
+  delete from planning.acces_admin;
+end $$;
+select 'Vérification 27 : réussie';
