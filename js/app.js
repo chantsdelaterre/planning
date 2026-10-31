@@ -289,17 +289,28 @@
   }
 
   // Couloirs : les séances qui se recouvrent dans une même journée se partagent la largeur.
+  // Disposition d'une journée en couloirs. Les couloirs valent pour toute la journée, et une
+  // séance reprend de préférence le couloir de la séance précédente de ses personnes : les
+  // séances successives d'une même personne restent alignées. Une séance s'élargit ensuite
+  // sur les couloirs voisins libres pendant toute sa durée.
   function couloirs(liste) {
     const tri = liste.slice().sort((x, y) => min(x.heure_debut) - min(y.heure_debut) || min(y.heure_fin) - min(x.heure_fin));
-    const res = []; let groupe = []; let finGroupe = -1;
-    const fermer = () => { const n = Math.max(1, ...groupe.map((g) => g.couloir + 1)); groupe.forEach((g) => { g.nb = n; res.push(g); }); groupe = []; };
+    const finCouloir = []; const dernier = new Map(); const res = [];
     for (const s of tri) {
-      if (groupe.length && min(s.heure_debut) >= finGroupe) fermer(), (finGroupe = -1);
-      const pris = new Set(groupe.filter((g) => min(g.s.heure_fin) > min(s.heure_debut)).map((g) => g.couloir));
-      let c = 0; while (pris.has(c)) c++;
-      groupe.push({ s, couloir: c }); finGroupe = Math.max(finGroupe, min(s.heure_fin));
+      const deb = min(s.heure_debut);
+      const libre = (c) => (finCouloir[c] ?? -1) <= deb;
+      let c = (s.personnes || []).map((p) => dernier.get(p.personne_id)).find((x) => x !== undefined && libre(x));
+      if (c === undefined) { c = 0; while (c < finCouloir.length && !libre(c)) c++; }
+      finCouloir[c] = Math.max(finCouloir[c] ?? -1, min(s.heure_fin));
+      for (const p of s.personnes || []) dernier.set(p.personne_id, c);
+      res.push({ s, couloir: c });
     }
-    if (groupe.length) fermer();
+    const nb = Math.max(1, finCouloir.length);
+    const chevauche = (x, y) => min(x.heure_debut) < min(y.heure_fin) && min(y.heure_debut) < min(x.heure_fin);
+    for (const r of res) {
+      r.nb = nb; r.span = 1;
+      while (r.couloir + r.span < nb && !res.some((o) => o !== r && o.couloir === r.couloir + r.span && chevauche(o.s, r.s))) r.span++;
+    }
     return res;
   }
 
@@ -375,7 +386,7 @@
       for (let m = hMin + 15; m < hMax; m += 15) col.append(el('div', { class: 'ligne-heure' + (m % 60 === 0 ? '' : m % 30 === 0 ? ' demi' : ' quart'), style: 'top:' + (m - hMin) * pxMin + 'px' }));
       const r = rp.get(d);
       for (const c of couloirs(blocs.filter((b) => b.date === d).map((b) => Object.assign({}, b.s, { _trace: b.trace })))) {
-        const bloc = blocSeance(c.s, c.couloir, c.nb, hMin, pxMin, enPersonne ? 0 : 0, enPersonne ? 56 : 100);
+        const bloc = blocSeance(c.s, c.couloir, c.nb, hMin, pxMin, 0, enPersonne ? 56 : 100, c.span);
         if (enPersonne && r && r.saisi && !c.s._trace && c.s.statut === 'prevue') {
           const cv = couvert(c.s, r.creneaux) / 60, ec = cv - c.s.duree_h;
           const ligne = el('span', { class: 'reel' + (Math.abs(ec) >= 0.25 ? ' ecart' : ''), title: 'Réalisé pendant la séance : ' + heures(cv) }, 'réel ' + heures(cv) + (Math.abs(ec) >= 0.25 ? ' · ' + (ec > 0 ? '+' : '−') + heures(Math.abs(ec)) : ' ✓'));
@@ -400,7 +411,7 @@
     dessinerDetail();
   }
 
-  function blocSeance(s, couloir, nb, hMin, pxMin, x0 = 0, w = 100) {
+  function blocSeance(s, couloir, nb, hMin, pxMin, x0 = 0, w = 100, span = 1) {
     const trace = s._trace;
     const conflit = !trace && s.chevauchements && s.chevauchements.length > 0;
     const haut = (min(s.heure_debut) - hMin) * pxMin;
@@ -414,7 +425,7 @@
     else if (s.deplacee) etiq = el('span', { class: 'etiquette' }, 'Déplacée du ' + D.court(s.date_serie));
     const b = el('button', {
       class: classes, type: 'button',
-      style: `top:${haut + 1}px;height:${Math.max(h - 2, 18)}px;left:calc(${x0 + (couloir * w) / nb}% + 3px);width:calc(${w / nb}% - 6px);background:${teinte(s.couleur, 0.16)};border-color:${s.couleur};color:#1B211E`,
+      style: `top:${haut + 1}px;height:${Math.max(h - 2, 18)}px;left:calc(${x0 + (couloir * w) / nb}% + 3px);width:calc(${(w * span) / nb}% - 6px);background:${teinte(s.couleur, 0.16)};border-color:${s.couleur};color:#1B211E`,
       'aria-label': `${nomSeance(s)}, ${D.long(trace ? s.date_serie : s.date_seance)}, ${court5(s.heure_debut)} à ${court5(s.heure_fin)}, ${s.personnes.map(nomP).join(', ') || 'personne'}`,
       draggable: modifiable ? 'true' : null,
       'data-seance': s.id,
