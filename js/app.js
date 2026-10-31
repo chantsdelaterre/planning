@@ -888,10 +888,19 @@
     if (!liste.length) { z.append(el('p', { class: 'vide' }, 'Rien sur cette période.')); R.table = lignesCsv; resumeRecap(0, 0, 0); return; }
     const couleur = (id) => (etat.ref.ateliers.find((a) => a.id === id) || {}).couleur || '#999';
     const nomAt = (id) => (etat.ref.ateliers.find((a) => a.id === id) || {}).nom || '?';
-    const tb = el('tbody'); const T = { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 };
+    const T = { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 };
+    for (const p of liste) for (const k in T) T[k] += p.tot[k];
+    // Colonnes vides masquées ; pas d'écart quand rien n'était prévu (un écart par rapport à rien ne dit rien).
+    const avecCp = T.cp > 0, avecAt = T.at > 0, avecRep = T.prevu > 0;
+    const ecartDe = (b) => b.prevuPasse > 0 ? ecart(b.realisePasse - b.prevuPasse) : '—';
+    let ecartTotal = 0, avecEcart = false;
+    const suite = (b, rep) => [el('td', { class: 'nb' }, ecartDe(b)),
+      avecCp ? el('td', { class: 'nb' }, b.cp ? String(b.cp) : '—') : null, avecAt ? el('td', { class: 'nb' }, b.at ? String(b.at) : '—') : null,
+      avecRep ? el('td', {}, rep) : null];
+    const tb = el('tbody');
     const seul = liste.length === 1;
     for (const p of liste) {
-      for (const k in T) T[k] += p.tot[k];
+      if (p.tot.prevuPasse > 0) { ecartTotal += p.tot.realisePasse - p.tot.prevuPasse; avecEcart = true; }
       const texteContrat = p.externe ? 'Externe' : [...new Set(p.contrats.map((c) => c[3] + (c[4] ? ' ' + (+c[4]) + ' h' : '') + ' · ' + c[2]))].join(' + ') || '—';
       const ouvert = seul || R.ouverts.has(p.id);
       const total = [...p.ateliers.values()].reduce((a, b) => a + b, 0);
@@ -901,27 +910,27 @@
         el('td', {}, el('span', { class: 'chevron' }, ouvert ? '▾' : '▸'), el('strong', {}, p.prenom + ' ' + p.nom)),
         el('td', { class: 'sous' }, texteContrat),
         el('td', { class: 'nb' }, h2(p.tot.contrat)), el('td', { class: 'nb' }, h2(p.tot.prevu)), el('td', { class: 'nb' }, h2(p.tot.realise)),
-        el('td', { class: 'nb' }, ecart(p.tot.realisePasse - p.tot.prevuPasse)),
-        el('td', { class: 'nb' }, p.tot.cp ? String(p.tot.cp) : '—'), el('td', { class: 'nb' }, p.tot.at ? String(p.tot.at) : '—'),
-        el('td', {}, total ? barre : el('span', { class: 'sous' }, '—'))));
+        ...suite(p.tot, total ? barre : el('span', { class: 'sous' }, '—'))));
       for (const k of cles()) {
         const b = p.t[k] || { contrat: 0, prevu: 0, realise: 0, prevuPasse: 0, realisePasse: 0, cp: 0, at: 0 };
-        lignesCsv.push([p.prenom + ' ' + p.nom, texteContrat, libelleCle(k), b.contrat, b.prevu, b.realise, b.realisePasse - b.prevuPasse, b.cp, b.at]);
+        lignesCsv.push([p.prenom + ' ' + p.nom, texteContrat, libelleCle(k), b.contrat, b.prevu, b.realise, b.prevuPasse > 0 ? b.realisePasse - b.prevuPasse : '', b.cp, b.at]);
         if (!ouvert) continue;
         tb.append(el('tr', { class: 'sous-ligne' }, el('td', {}, libelleCle(k)), el('td', {}),
-          el('td', { class: 'nb' }, h2(b.contrat)), el('td', { class: 'nb' }, h2(b.prevu)), el('td', { class: 'nb' }, h2(b.realise)),
-          el('td', { class: 'nb' }, b.prevuPasse || b.realisePasse ? ecart(b.realisePasse - b.prevuPasse) : '—'),
-          el('td', { class: 'nb' }, b.cp ? String(b.cp) : '—'), el('td', { class: 'nb' }, b.at ? String(b.at) : '—'), el('td', {})));
+          el('td', { class: 'nb' }, h2(b.contrat)), el('td', { class: 'nb' }, h2(b.prevu)), el('td', { class: 'nb' }, h2(b.realise)), ...suite(b, null)));
       }
     }
     if (liste.length > 1) tb.append(el('tr', { class: 'total' }, el('td', {}, 'Total · ' + liste.length + ' personnes'), el('td', {}),
       el('td', { class: 'nb' }, h2(T.contrat)), el('td', { class: 'nb' }, h2(T.prevu)), el('td', { class: 'nb' }, h2(T.realise)),
-      el('td', { class: 'nb' }, ecart(T.realisePasse - T.prevuPasse)), el('td', { class: 'nb' }, String(T.cp || '—')), el('td', { class: 'nb' }, String(T.at || '—')), el('td', {})));
-    z.append(el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Contrat'),
+      el('td', { class: 'nb' }, avecEcart ? ecart(ecartTotal) : '—'),
+      avecCp ? el('td', { class: 'nb' }, String(T.cp)) : null, avecAt ? el('td', { class: 'nb' }, String(T.at)) : null, avecRep ? el('td', {}) : null));
+    z.append(el('p', { class: 'explication-recap' },
+      el('b', {}, 'Contrat'), ' : ce que prévoit le contrat · ', el('b', {}, 'Prévu'), ' : ce qui est planifié ici · ',
+      el('b', {}, 'Réalisé'), ' : ce qui a été saisi dans Suivi des temps · ', el('b', {}, 'Écart'), ' : réalisé moins prévu, jusqu\'à hier, quand quelque chose était prévu.'),
+      el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Personne'), el('th', {}, 'Contrat'),
       el('th', { class: 'nb' }, 'Contrat'), el('th', { class: 'nb' }, 'Prévu'), el('th', { class: 'nb' }, 'Réalisé'),
-      el('th', { class: 'nb', title: 'Réalisé moins prévu, sur les jours écoulés (jusqu\'à hier)' }, 'Écart *'),
-      el('th', { class: 'nb' }, 'CP (j)'), el('th', { class: 'nb' }, 'AT (j)'), el('th', {}, 'Répartition du prévu'))), tb),
-      el('p', { class: 'note-recap', style: 'padding:8px 10px' }, '* Écart = réalisé − prévu, sur les jours écoulés seulement. Contrat : heures hebdomadaires réparties du lundi au vendredi, selon l\'historique des contrats. Réalisé : heures saisies dans Suivi des temps.'));
+      el('th', { class: 'nb', title: 'Réalisé moins prévu, sur les jours écoulés (jusqu\'à hier)' }, 'Écart'),
+      avecCp ? el('th', { class: 'nb' }, 'CP (j)') : null, avecAt ? el('th', { class: 'nb' }, 'AT (j)') : null, avecRep ? el('th', {}, 'Répartition du prévu') : null)), tb),
+      el('p', { class: 'note-recap', style: 'padding:8px 10px' }, 'Contrat : heures hebdomadaires réparties du lundi au vendredi, selon l\'historique des contrats.'));
     R.table = lignesCsv;
     resumeRecap(T.contrat, T.prevu, T.realise);
   }
