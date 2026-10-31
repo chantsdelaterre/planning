@@ -181,6 +181,7 @@
     try {
       const s = await API.appeler('session');
       etat.droits = s.droits; etat.ref = s.referentiel; etat.alertesNonVues = +s.alertes_non_vues || 0;
+      etat.nom = s.nom || ''; etat.ordres = s.ordres || [];
     } catch (e) {
       dire(e.message === 'lien_invalide' ? 'Ce lien n\'est pas valide ou n\'est plus actif.' : e.message, true);
       return;
@@ -190,11 +191,12 @@
     try { const v = JSON.parse(localStorage.getItem('planning_vue') || 'null'); if (v) Object.assign(etat, { vue: v.vue || 'general', personne: v.personne || null, cible: v.cible || null }); } catch (e) { /* rien */ }
     // Un collaborateur arrive sur son propre planning.
     if (etat.droits.niveau === 'collaborateur' && etat.droits.personne_id) { etat.vue = 'personne'; etat.personne = etat.droits.personne_id; }
-    try { etat.joursVides = localStorage.getItem('planning_jours_vides') === '1'; etat.couleurs = localStorage.getItem('planning_couleurs') || 'atelier'; etat.equipeMode = localStorage.getItem('planning_equipe') || 'jour'; } catch (e) { /* rien */ }
+    try { etat.joursVides = localStorage.getItem('planning_jours_vides') === '1'; etat.couleurs = localStorage.getItem('planning_couleurs') || 'atelier'; etat.equipeMode = localStorage.getItem('planning_equipe') || 'jour'; etat.equipeTri = localStorage.getItem('planning_equipe_tri') || 'arrivee'; } catch (e) { /* rien */ }
     $('#couleurs').value = etat.couleurs;
     $('#jours-vides').checked = !!etat.joursVides;
     const libelles = { complet: 'Accès complet', consultation: 'Consultation', responsable: 'Responsable d\'atelier', collaborateur: 'Lecture' };
-    $('#qui').textContent = libelles[etat.droits.niveau] || '';
+    $('#qui').textContent = etat.nom || libelles[etat.droits.niveau] || '';
+    $('#qui').title = libelles[etat.droits.niveau] || '';
     $('#btn-nouvelle').hidden = !peutEcrire();
     $('#btn-fermer').hidden = etat.droits.niveau !== 'complet';
     $('#onglet-admin').hidden = !['complet', 'consultation'].includes(etat.droits.niveau);
@@ -574,11 +576,14 @@
     const seg = (v, t) => el('button', { type: 'button', class: 'segment' + (etat.equipeMode === v || (v === 'jour' && jourMode) ? ' actif' : ''), onclick: () => { etat.equipeMode = v; garderEquipe(); dessiner(); } }, t);
     const tete = el('div', { class: 'equipe-tete' }, el('div', { class: 'segments' }, seg('jour', 'Jour'), seg('semaine', 'Semaine')));
     if (jourMode) tete.append(el('div', { class: 'jours-equipe' }, ...dates.map((d, i) => el('button', { type: 'button', class: 'puce-jour' + (d === etat.equipeJour ? ' actif' : ''), onclick: () => { etat.equipeJour = d; dessiner(); } }, JOURS[D.jourIso(d) - 1] + ' ' + D.court(d)))));
+    tete.append(el('label', { class: 'tri-equipe' }, 'Trier par ',
+      el('select', { onchange: (e) => { etat.equipeTri = e.target.value; try { localStorage.setItem('planning_equipe_tri', etat.equipeTri); } catch (er) { /* rien */ } dessiner(); } },
+        ...[['arrivee', 'heure d\'arrivée'], ['nom', 'nom'], ['atelier', 'ordre de l\'atelier']].map(([v, t]) => el('option', { value: v, selected: etat.equipeTri === v }, t)))));
     z.append(tete);
     // Personnes : celles qui ont une séance sur la période affichée.
     const gens = new Map();
     for (const s of duJour) for (const x of s.personnes) if (!gens.has(x.personne_id)) gens.set(x.personne_id, x);
-    const liste = [...gens.values()].sort((a, b) => (a.prenom + a.nom).localeCompare(b.prenom + b.nom));
+    const { liste, groupeDe } = ordonnerEquipe([...gens.values()], duJour, jourMode);
     if (!liste.length) { z.append(el('p', { class: 'vide' }, 'Personne n\'est prévu' + (jourMode ? ' ce jour-là' : ' cette semaine') + ' dans la sélection.')); return; }
     const infoP = (pid) => etat.sem.personnes.find((p) => p.id === pid);
     const sousTitre = (pid) => { const p = infoP(pid); if (!p) return ''; return p.externe ? (p.nature === 'a_venir' ? 'À venir · sans fiche' : 'Externe') : p.fiches.map((f) => f.contrat + (f.heures_hebdo ? ' ' + f.heures_hebdo + ' h' : '') + ' · ' + f.societe).join(' + '); };
@@ -604,7 +609,8 @@
             title: nomSeance(s) + ' · ' + court5(s.heure_debut) + '–' + court5(s.heure_fin) + ' · ' + s.atelier, onclick: () => ouvrir(s) },
             el('b', {}, marqueSerie(s), nomSeance(s)), el('span', {}, court5(s.heure_debut) + '–' + court5(s.heure_fin))));
         }
-        tb.append(el('div', { class: 'eq-ligne' + (alertes.length ? ' en-alerte' : '') },
+        enteteGroupe(tb, x, liste, groupeDe);
+        tb.append(el('div', { class: 'eq-ligne' + (alertes.length ? ' en-alerte' : ''), ...glisserLigne(x, groupeDe, liste) },
           el('div', { class: 'eq-nom' }, ouvrable(infoP(x.personne_id)) ? el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom) : el('span', { class: 'nom' }, x.prenom + ' ' + x.nom),
             el('div', { class: alertes.length ? 'alerte-txt' : 'sous' }, alertes.length ? alertes.join(' · ') : sousTitre(x.personne_id))),
           piste, el('div', { class: 'eq-total mono' }, heures(tot))));
@@ -636,7 +642,8 @@
             ...siennes.map((s) => el('button', { type: 'button', class: 'eq-etiquette' + (s.statut !== 'prevue' ? ' suspendue' : '') + (etat.choisie === s.id ? ' choisie' : ''), style: 'background:' + (etat.couleurs === 'personne' ? couleurPersonne(x.personne_id) : couleurTache(s.tache_id)), onclick: () => ouvrir(s), title: nomSeance(s) + ' · ' + s.atelier },
               el('b', {}, marqueSerie(s), nomSeance(s)), ' ' + court5(s.heure_debut).replace(':00', 'h') + '–' + court5(s.heure_fin).replace(':00', 'h'))));
         });
-        tb.append(el('div', { class: 'eq-ligne' + (alerteS ? ' en-alerte' : '') },
+        enteteGroupe(tb, x, liste, groupeDe);
+        tb.append(el('div', { class: 'eq-ligne' + (alerteS ? ' en-alerte' : ''), ...glisserLigne(x, groupeDe, liste) },
           el('div', { class: 'eq-nom' }, ouvrable(infoP(x.personne_id)) ? el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom) : el('span', { class: 'nom' }, x.prenom + ' ' + x.nom), el('div', { class: 'sous' }, sousTitre(x.personne_id))),
           el('div', { class: 'eq-jours' }, ...cells), el('div', { class: 'eq-total mono' }, heures(totS))));
       }
@@ -645,6 +652,65 @@
         el('div', { class: 'eq-total mono' }, heures(seances.reduce((a, s) => a + s.main_oeuvre_h, 0)))));
     }
     z.append(tb);
+  }
+  // Ordre des lignes de la vue Équipe : heure d'arrivée, nom, ou ordre réglé à la main par atelier.
+  function ordonnerEquipe(gens, seances, jourMode) {
+    const nomDe = (x) => x.prenom + ' ' + x.nom;
+    const parNom = (a, b) => nomDe(a).localeCompare(nomDe(b));
+    const siennes = (x) => seances.filter((s) => s.personnes.some((y) => y.personne_id === x.personne_id));
+    const groupeDe = new Map();
+    if (etat.equipeTri === 'nom') return { liste: gens.sort(parNom), groupeDe };
+    if (etat.equipeTri !== 'atelier') {
+      // Arrivée : le début le plus tôt de la journée ; en semaine, la moyenne des arrivées de chaque jour.
+      const arrivee = (x) => {
+        const parJour = new Map();
+        for (const s of siennes(x)) parJour.set(s.date_seance, Math.min(parJour.get(s.date_seance) ?? 1e9, min(s.heure_debut)));
+        const v = [...parJour.values()];
+        return v.reduce((a, b) => a + b, 0) / v.length;
+      };
+      const a = new Map(gens.map((x) => [x.personne_id, arrivee(x)]));
+      return { liste: gens.sort((x, y) => a.get(x.personne_id) - a.get(y.personne_id) || parNom(x, y)), groupeDe };
+    }
+    const rangAt = (at) => etat.ref.ateliers.findIndex((a) => a.id === at);
+    const rang = (at, pid) => { const o = (etat.ordres || []).find((r) => r[0] === at && r[1] === pid); return o ? o[2] : Infinity; };
+    for (const x of gens) {
+      const ats = [...new Set(siennes(x).map((s) => s.atelier_id))].sort((a, b) => rangAt(a) - rangAt(b));
+      groupeDe.set(x.personne_id, ats.find((at) => rang(at, x.personne_id) !== Infinity) ?? ats[0]);
+    }
+    const g = (x) => groupeDe.get(x.personne_id);
+    return { liste: gens.sort((x, y) => rangAt(g(x)) - rangAt(g(y)) || rang(g(x), x.personne_id) - rang(g(y), y.personne_id) || parNom(x, y)), groupeDe };
+  }
+  function enteteGroupe(tb, x, liste, groupeDe) {
+    if (etat.equipeTri !== 'atelier') return;
+    const at = groupeDe.get(x.personne_id), i = liste.indexOf(x);
+    if (i > 0 && groupeDe.get(liste[i - 1].personne_id) === at) return;
+    const a = etat.ref.ateliers.find((y) => y.id === at);
+    tb.append(el('div', { class: 'eq-groupe' }, el('b', {}, a ? a.nom : 'Atelier'),
+      peutAtelier(at) ? el('span', { class: 'sous' }, ' · fais glisser les noms pour les ranger') : null));
+  }
+  let glisse = null;
+  function glisserLigne(x, groupeDe, liste) {
+    if (etat.equipeTri !== 'atelier') return {};
+    const at = groupeDe.get(x.personne_id);
+    if (!peutAtelier(at)) return {};
+    return { draggable: 'true',
+      ondragstart: (e) => { glisse = { pid: x.personne_id, at }; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(x.personne_id)); },
+      ondragover: (e) => { if (glisse && glisse.at === at && glisse.pid !== x.personne_id) { e.preventDefault(); e.currentTarget.classList.add('cible'); } },
+      ondragleave: (e) => e.currentTarget.classList.remove('cible'),
+      ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('cible'); if (glisse && glisse.at === at) rangerEquipe(at, glisse.pid, x.personne_id, liste, groupeDe); glisse = null; },
+      ondragend: () => { glisse = null; } };
+  }
+  async function rangerEquipe(at, pid, cible, liste, groupeDe) {
+    // Liste complète de l'atelier : les personnes déjà rangées (même absentes ce jour-là), puis celles affichées.
+    const ordre = (etat.ordres || []).filter((r) => r[0] === at).sort((a, b) => a[2] - b[2]).map((r) => r[1]);
+    for (const x of liste) if (groupeDe.get(x.personne_id) === at && !ordre.includes(x.personne_id)) ordre.push(x.personne_id);
+    const de = ordre.indexOf(pid), vers = ordre.indexOf(cible);
+    ordre.splice(de, 1); ordre.splice(de < vers ? ordre.indexOf(cible) + 1 : ordre.indexOf(cible), 0, pid);
+    const avant = etat.ordres;
+    etat.ordres = (etat.ordres || []).filter((r) => r[0] !== at).concat(ordre.map((p, i) => [at, p, i + 1]));
+    dessiner();
+    try { await API.appeler('ordre_equipe', { atelier_id: at, personnes: ordre }); }
+    catch (e) { etat.ordres = avant; dessiner(); dire(e.message, true); }
   }
   function garderEquipe() { try { localStorage.setItem('planning_equipe', etat.equipeMode); } catch (e) { /* rien */ } }
 

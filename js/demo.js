@@ -56,6 +56,7 @@
   const S = []; // séances
   const fermes = [];
   const series = [];
+  const ordres = [];  // [atelier_id, personne_id, rang] : ordre de la vue Équipe
   const responsables = [[1, 4]];  // David Modèle responsable de Paniers
   const accesTout = [], accesElements = [], liens = [], alertes = [];
   // Règles de durée (comme dans la base) : 6 h d'affilée sans coupure de 30 min, 10 h par jour.
@@ -189,7 +190,7 @@
       const v = tachesVisibles();
       const taches = R.taches.filter((a) => !a.archive && (!v || v.includes(a.id)));
       const ateliers = R.ateliers.filter((a) => !a.archive && taches.some((t) => t.atelier_id === a.id));
-      return { alertes_non_vues: alertes.filter((a) => !a.vue).length, droits, referentiel: { taches, ateliers, activites: R.activites.filter((a) => !a.archive && ateliers.some((x) => x.activite_id === a.id)),
+      return { nom: droits.personne_id ? pers(droits.personne_id).prenom + ' ' + pers(droits.personne_id).nom : 'Démo Admin', ordres: JSON.parse(JSON.stringify(ordres)), alertes_non_vues: alertes.filter((a) => !a.vue).length, droits, referentiel: { taches, ateliers, activites: R.activites.filter((a) => !a.archive && ateliers.some((x) => x.activite_id === a.id)),
         regroupements: R.regroupements.filter((a) => !a.archive && taches.some((t) => t.regroupement_id === a.id)) } };
     },
     semaine: (q) => {
@@ -285,6 +286,7 @@
           suggestions: x.externe ? P.filter((y) => !y.externe && y.id !== x.id && ((sa(x.nom) && sa(y.nom) === sa(x.nom)) || sa(y.prenom) === sa(x.prenom))).map((y) => y.id) : null })),
       };
     },
+    ordre_equipe: (q) => { exiger(+q.atelier_id); const at = +q.atelier_id; for (let i = ordres.length - 1; i >= 0; i--) if (ordres[i][0] === at) ordres.splice(i, 1); [...new Set(q.personnes.map(Number))].forEach((p, i) => ordres.push([at, p, i + 1])); return { atelier_id: at }; },
     personne_couleur: (q) => { const x = pers(+q.personne_id); x.couleur = q.couleur ? q.couleur.toUpperCase() : null; return {}; },
     personne_creer: (q) => {
       if (!['complet', 'responsable'].includes(droits.niveau)) throw new Error('Réservé aux responsables et aux accès complets');

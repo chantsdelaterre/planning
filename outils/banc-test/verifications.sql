@@ -816,3 +816,31 @@ begin
   delete from planning.seance; delete from planning.journal; delete from planning.acces_admin; delete from planning.atelier_responsable;
 end $$;
 select 'Vérification 28 : réussie';
+
+-- 29. Ordre de la vue Équipe (par atelier) et nom de la personne connectée.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; resp jsonb; at bigint; at2 bigint; anna bigint; bruno bigint; chloe bigint; s jsonb; ok boolean;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select id into at from planning.atelier order by id limit 1;
+  select id into at2 from planning.atelier where id <> at order by id limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into bruno from public.collaborateurs where collab_id = 'T002';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  insert into planning.atelier_responsable values (at, anna);
+  resp := jsonb_build_object('type', 'collab', 'personne_id', anna);
+  set local role service_role;
+  if public.planning_appel(adm, 'session', '{}')->>'nom' <> 'Test un' then raise exception 'ÉCHEC : nom de l''admin'; end if;
+  s := public.planning_appel(resp, 'session', '{}');
+  if s->>'nom' not like '% %' then raise exception 'ÉCHEC : nom du responsable %', s->>'nom'; end if;
+  perform public.planning_appel(resp, 'ordre_equipe', jsonb_build_object('atelier_id', at, 'personnes', jsonb_build_array(chloe, anna, bruno)));
+  s := public.planning_appel(resp, 'session', '{}');
+  if s->'ordres' <> jsonb_build_array(jsonb_build_array(at, chloe, 1), jsonb_build_array(at, anna, 2), jsonb_build_array(at, bruno, 3)) then raise exception 'ÉCHEC : ordre %', s->'ordres'; end if;
+  ok := false;
+  begin perform public.planning_appel(resp, 'ordre_equipe', jsonb_build_object('atelier_id', at2, 'personnes', jsonb_build_array(anna)));
+  exception when others then ok := true; end;
+  if not ok then raise exception 'ÉCHEC : un responsable ne règle pas l''ordre d''un autre atelier'; end if;
+  reset role;
+  delete from planning.ordre_equipe; delete from planning.acces_admin; delete from planning.atelier_responsable;
+end $$;
+select 'Vérification 29 : réussie';
