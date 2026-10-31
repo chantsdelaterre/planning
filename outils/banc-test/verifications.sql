@@ -795,3 +795,24 @@ begin
   delete from planning.acces_admin;
 end $$;
 select 'Vérification 27 : réussie';
+
+-- 28. Périmètre des personnes d'un responsable : les autres par leur nom seulement.
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; resp jsonb; t bigint; at bigint; anna bigint; chloe bigint; bruno bigint; r jsonb; lundi date := date_trunc('week', current_date)::date + 7;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id, t2.atelier_id into t, at from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  select personne_id into chloe from public.collaborateurs where collab_id = 'T004';
+  select personne_id into bruno from public.collaborateurs where collab_id = 'T002';
+  insert into planning.atelier_responsable values (at, anna);
+  resp := jsonb_build_object('type', 'collab', 'personne_id', anna);
+  set local role service_role;
+  perform public.planning_appel(adm, 'seance_creer', jsonb_build_object('tache_id', t, 'date', lundi, 'debut', '08:00', 'fin', '10:00', 'personnes', jsonb_build_array(chloe)));
+  r := public.planning_appel(resp, 'semaine', jsonb_build_object('lundi', lundi));
+  if not exists (select 1 from jsonb_array_elements(r->'personnes') p where (p->>'id')::bigint = chloe and (p->>'visible')::boolean and jsonb_array_length(p->'fiches') > 0) then raise exception 'ÉCHEC : Chloé (sur son atelier) devrait être visible'; end if;
+  if not exists (select 1 from jsonb_array_elements(r->'personnes') p where (p->>'id')::bigint = bruno and not (p->>'visible')::boolean and jsonb_array_length(p->'fiches') = 0) then raise exception 'ÉCHEC : Bruno (hors périmètre) devrait n''avoir que son nom'; end if;
+  reset role;
+  delete from planning.seance; delete from planning.journal; delete from planning.acces_admin; delete from planning.atelier_responsable;
+end $$;
+select 'Vérification 28 : réussie';

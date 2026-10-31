@@ -264,6 +264,9 @@
     : etat.selection.has(s.tache_id) || estAMoiHorsReferentiel(s);
   // Heures comptées pour une séance dans la vue : celles de la personne, ou la main-d'œuvre.
   const heuresVue = (s) => etat.vue === 'personne' ? (s.statut === 'prevue' ? s.duree_h : 0) : s.main_oeuvre_h;
+  // Personne dont on peut ouvrir le planning (« Par personne ») : tout le monde pour les administrateurs,
+  // son périmètre pour un responsable, soi-même pour un collaborateur (la base le marque « visible »).
+  const ouvrable = (p) => !!p && p.visible !== false;
   const personneCourante = () => etat.sem && etat.sem.personnes.find((p) => p.id === etat.personne);
   // Le dimanche s'affiche si la case est cochée, ou d'office dès qu'une séance visible tombe ce jour-là.
   // Jours affichés : par défaut, seulement ceux qui ont une séance visible (« Jours vides » coché : toute
@@ -307,6 +310,7 @@
     const dates = datesAffichees(); const nbJ = dates.length;
     $('#titre-semaine').textContent = 'Semaine ' + D.numSemaine(etat.lundi);
     $('#dates-semaine').textContent = 'du ' + D.long(etat.lundi) + ' au ' + D.long(D.ajout(etat.lundi, 6));
+    if (etat.vue === 'personne' && etat.sem && etat.personne && !ouvrable(etat.sem.personnes.find((p) => p.id === etat.personne))) etat.personne = etat.droits.personne_id || null;
     const pc = personneCourante();
     if (etat.vue === 'personne' && pc) $('#titre-semaine').textContent += ' · ' + pc.prenom + ' ' + pc.nom;
     if (etat.vue === 'activite' && etat.cible) $('#titre-semaine').textContent += ' · ' + libelleCible();
@@ -601,7 +605,7 @@
             el('b', {}, marqueSerie(s), nomSeance(s)), el('span', {}, court5(s.heure_debut) + '–' + court5(s.heure_fin))));
         }
         tb.append(el('div', { class: 'eq-ligne' + (alertes.length ? ' en-alerte' : '') },
-          el('div', { class: 'eq-nom' }, el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom),
+          el('div', { class: 'eq-nom' }, ouvrable(infoP(x.personne_id)) ? el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom) : el('span', { class: 'nom' }, x.prenom + ' ' + x.nom),
             el('div', { class: alertes.length ? 'alerte-txt' : 'sous' }, alertes.length ? alertes.join(' · ') : sousTitre(x.personne_id))),
           piste, el('div', { class: 'eq-total mono' }, heures(tot))));
       }
@@ -633,7 +637,7 @@
               el('b', {}, marqueSerie(s), nomSeance(s)), ' ' + court5(s.heure_debut).replace(':00', 'h') + '–' + court5(s.heure_fin).replace(':00', 'h'))));
         });
         tb.append(el('div', { class: 'eq-ligne' + (alerteS ? ' en-alerte' : '') },
-          el('div', { class: 'eq-nom' }, el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom), el('div', { class: 'sous' }, sousTitre(x.personne_id))),
+          el('div', { class: 'eq-nom' }, ouvrable(infoP(x.personne_id)) ? el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom) : el('span', { class: 'nom' }, x.prenom + ' ' + x.nom), el('div', { class: 'sous' }, sousTitre(x.personne_id))),
           el('div', { class: 'eq-jours' }, ...cells), el('div', { class: 'eq-total mono' }, heures(totS))));
       }
       tb.append(el('div', { class: 'eq-ligne eq-presents' }, el('div', { class: 'eq-nom' }, el('b', {}, 'Présents'), el('div', { class: 'sous' }, 'par jour')),
@@ -704,9 +708,10 @@
     const sel = $('#choix'); sel.replaceChildren();
     if (etat.vue === 'personne') {
       $('#choix-libelle').textContent = 'Personne';
-      if (!etat.sem.personnes.some((p) => p.id === etat.personne)) sel.append(el('option', { value: '' }, '— choisir —'));
-      for (const p of etat.sem.personnes) sel.append(el('option', { value: p.id, selected: p.id === etat.personne }, p.prenom + ' ' + p.nom));
-      sel.value = etat.sem.personnes.some((p) => p.id === etat.personne) ? String(etat.personne) : '';
+      const ouvrables = etat.sem.personnes.filter(ouvrable);
+      if (!ouvrables.some((p) => p.id === etat.personne)) sel.append(el('option', { value: '' }, '— choisir —'));
+      for (const p of ouvrables) sel.append(el('option', { value: p.id, selected: p.id === etat.personne }, p.prenom + ' ' + p.nom));
+      sel.value = ouvrables.some((p) => p.id === etat.personne) ? String(etat.personne) : '';
     } else {
       $('#choix-libelle').textContent = 'Activité';
       const groupe = (label, liste, k, prefixe) => {
@@ -1363,7 +1368,7 @@
     const q = etat.recherche.trim().toLowerCase();
     const ateliers = ateliersSelectionnes();
     const liste = etat.sem.personnes.filter((p) => (!q || (p.prenom + ' ' + p.nom).toLowerCase().includes(q))
-      && (etat.toutLeMonde || etat.vue === 'personne' || dansSelection(p, etat.vue === 'activite' ? new Set(etat.ref.taches.filter((t) => tachesCible().includes(t.id)).map((t) => t.atelier_id)) : ateliers)));
+      && (etat.vue !== 'personne' || ouvrable(p)) && (etat.toutLeMonde || etat.vue === 'personne' || dansSelection(p, etat.vue === 'activite' ? new Set(etat.ref.taches.filter((t) => tachesCible().includes(t.id)).map((t) => t.atelier_id)) : ateliers)));
     for (const p of liste) {
       const contrat = p.externe ? (p.nature === 'a_venir' ? 'À venir · sans fiche' : 'Externe · sans fiche') : p.fiches.map((f) => `${f.contrat}${f.heures_hebdo ? ' ' + f.heures_hebdo + ' h' : ''} · ${f.societe}`).join(' + ');
       const ref = p.fiches.reduce((a, f) => a + (+f.heures_hebdo || 0), 0);
@@ -1371,7 +1376,7 @@
       const courante = etat.vue === 'personne' && p.id === etat.personne;
       const ligne = el('div', { class: 'personne' + (courante ? ' courante' : ''), draggable: peutEcrire() ? 'true' : null, title: peutEcrire() ? 'Glisser sur une séance' : null },
         peutEcrire() ? el('span', { class: 'poignee', 'aria-hidden': 'true' }, '⋮⋮') : null,
-        el('div', { style: 'flex:1;min-width:0' }, el('button', { type: 'button', class: 'nom', title: 'Voir son planning', onclick: () => changerVue('personne', p.id) }, parPersonne() ? el('span', { class: 'pastille-p', style: 'background:' + couleurPersonne(p.id) }) : null, p.prenom + ' ' + p.nom), el('div', { class: 'contrat' }, contrat)),
+        el('div', { style: 'flex:1;min-width:0' }, el(ouvrable(p) ? 'button' : 'span', ouvrable(p) ? { type: 'button', class: 'nom', title: 'Voir son planning', onclick: () => changerVue('personne', p.id) } : { class: 'nom' }, parPersonne() ? el('span', { class: 'pastille-p', style: 'background:' + couleurPersonne(p.id) }) : null, p.prenom + ' ' + p.nom), el('div', { class: 'contrat' }, contrat)),
         el('div', { class: 'jauge' }, el('div', { class: 'mono' }, ref ? heures(p.prevu_h) + ' / ' + ref : heures(p.prevu_h)),
           el('div', { class: 'barre-j' }, el('div', { class: p.prevu_h > ref && ref ? 'depasse' : '', style: 'width:' + pct + '%' }))));
       if (peutEcrire()) ligne.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('application/x-personne', String(p.id)); ev.dataTransfer.effectAllowed = 'copy'; });

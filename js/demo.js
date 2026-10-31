@@ -206,7 +206,13 @@
         indisponibilites: [], chevauchements: [],
         personnes: P.filter((x) => !x.archive).map((x) => Object.assign({}, x, { prevu_h: prevu[x.id] || 0, nature: x.externe ? x.nature || 'externe' : null, couleur: x.couleur || ['#C62828', '#1565C0', '#2E7D32', '#EF6C00', '#6A1B9A', '#00838F', '#AD1457', '#827717', '#4527A0', '#8D6E63'][(x.id - 1) % 10] }))
           .filter((x) => droits.niveau !== 'collaborateur' || x.id === moi || liste.some((s) => s.personnes.some((y) => y.personne_id === x.id)))
-          .map((x) => droits.niveau !== 'collaborateur' || x.id === moi ? x : Object.assign({}, x, { fiches: [], prevu_h: 0, ateliers_habituels: [] })),
+          .map((x) => {
+            if (['complet', 'consultation'].includes(droits.niveau)) return x;
+            const mesAt = responsables.filter((r) => r[1] === moi).map((r) => r[0]);
+            const vis = x.id === moi || (droits.niveau === 'responsable' && (x.ateliers_habituels.some((a) => mesAt.includes(a))
+              || S.some((s) => s.date_seance >= d0 && s.date_seance <= d6 && mesAt.includes(atelierDe(s)) && s.personnes.some((y) => y.personne_id === x.id))));
+            return vis ? Object.assign({}, x, { visible: true }) : Object.assign({}, x, { fiches: [], prevu_h: 0, ateliers_habituels: [], visible: false });
+          }),
       };
     },
     seance_creer: (q) => { exiger(tache(+q.tache_id).atelier_id); const s = nouvelleSeance({ tache_id: +q.tache_id, date_seance: q.date, heure_debut: h(q.debut), heure_fin: h(q.fin), titre: q.titre || null, lieu: q.lieu || null, personnes: (q.personnes || []).map(Number) }); return { seance_id: s.id }; },
