@@ -1189,10 +1189,92 @@
     }
   }
 
+  // Import d'un agenda (fichier préparé : lignes date / début / fin / prénom / poste / note) ------
+  const I = { fichier: null, prenoms: {}, postes: {}, enCours: false };
+  const sansAccent = (t) => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  function adminImport(z) {
+    const d = A.donnees;
+    if (lectureSeule()) { z.append(el('p', { class: 'vide' }, 'Réservé aux accès complets.')); return; }
+    const choix = el('input', { type: 'file', accept: '.json,application/json', onchange: async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      try { I.fichier = JSON.parse(await f.text()); if (!Array.isArray(I.fichier.lignes)) throw new Error(); }
+      catch (x) { dire('Ce fichier n\'est pas un fichier d\'import valide.', true); I.fichier = null; return; }
+      I.prenoms = {}; I.postes = {}; dessinerAdmin();
+    } });
+    z.append(el('div', { class: 'ref-ligne', style: 'margin-bottom:12px' }, el('label', { class: 'case' }, 'Fichier d\'import : ', choix)));
+    if (!I.fichier) { z.append(el('p', { class: 'sous' }, 'Dépose le fichier préparé par Claude (import-….json).')); return; }
+    const L = I.fichier.lignes;
+    const avecFiche = d.personnes.filter((p) => !p.archive).sort((a, b) => b.active - a.active || (a.prenom + a.nom).localeCompare(b.prenom + b.nom));
+    const taches = d.taches.filter((t) => !t.archive);
+    const nomTache = (t) => (d.ateliers.find((a) => a.id === t.atelier_id) || {}).nom + ' › ' + t.nom;
+    // Correspondances proposées
+    const prenoms = [...new Set(L.map((l) => l.prenom).filter(Boolean))].sort();
+    for (const pr of prenoms) if (!(pr in I.prenoms)) {
+      const c = avecFiche.filter((p) => sansAccent(p.prenom) === sansAccent(pr) && (p.active || p.sans_fiche));
+      I.prenoms[pr] = c.length === 1 ? String(c[0].id) : '';
+    }
+    const postes = [...new Set(L.map((l) => l.poste))].sort();
+    const cherche = { vente: 'vente', caisse: 'caisse', remballe: 'remballe', montage: 'montage halles' };
+    for (const po of postes) if (!(po in I.postes)) {
+      const c = taches.filter((t) => sansAccent(t.nom).includes(cherche[po] || po));
+      const h = c.find((t) => /halle/i.test((d.ateliers.find((a) => a.id === t.atelier_id) || {}).nom)) || c[0];
+      I.postes[po] = h ? String(h.id) : '';
+    }
+    z.append(el('p', {}, el('strong', {}, L.length + ' séances'), ' · ' + (I.fichier.source || '') + (I.fichier.periode ? ' · du ' + D.long(I.fichier.periode[0]) + ' au ' + D.long(I.fichier.periode[1]) : '') + ' · ' + L.filter((l) => !l.prenom).length + ' postes à pourvoir.'));
+    // Tâches
+    const tbT = el('tbody');
+    for (const po of postes) {
+      tbT.append(el('tr', {}, el('td', {}, el('strong', {}, po)), el('td', { class: 'nb' }, String(L.filter((l) => l.poste === po).length)),
+        el('td', {}, el('select', { class: 'champ', onchange: (e) => { I.postes[po] = e.target.value; } }, el('option', { value: '' }, '— choisir la tâche —'),
+          ...taches.map((t) => el('option', { value: t.id, selected: String(t.id) === I.postes[po] }, nomTache(t)))))));
+    }
+    z.append(el('h3', {}, 'Postes → tâches'), el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Poste'), el('th', { class: 'nb' }, 'Séances'), el('th', {}, 'Tâche'))), tbT));
+    // Personnes
+    const tbP = el('tbody');
+    for (const pr of prenoms) {
+      tbP.append(el('tr', {}, el('td', {}, el('strong', {}, pr)), el('td', { class: 'nb' }, String(L.filter((l) => l.prenom === pr).length)),
+        el('td', {}, el('select', { class: 'champ', onchange: (e) => { I.prenoms[pr] = e.target.value; } },
+          el('option', { value: '' }, '— à pourvoir (prénom gardé en complément) —'),
+          el('option', { value: 'creer', selected: I.prenoms[pr] === 'creer' }, '+ créer « ' + pr + ' », personne sans fiche (externe)'),
+          ...avecFiche.map((p) => el('option', { value: p.id, selected: String(p.id) === I.prenoms[pr] }, p.prenom + ' ' + p.nom + (p.sans_fiche ? ' (sans fiche)' : p.active ? ' · ' + (p.societes || []).join(' + ') : ' (inactive)')))))));
+    }
+    z.append(el('h3', {}, 'Prénoms → personnes'), el('p', { class: 'sous' }, 'Vérifie chaque ligne : la correspondance est proposée quand un seul prénom identique existe.'),
+      el('table', {}, el('thead', {}, el('tr', {}, el('th', {}, 'Dans l\'agenda'), el('th', { class: 'nb' }, 'Séances'), el('th', {}, 'Dans le planning'))), tbP));
+    const forcer = el('input', { type: 'checkbox', checked: true });
+    z.append(el('label', { class: 'case', style: 'margin:14px 0 8px' }, forcer, ' Importer même si des règles de durée ne sont pas respectées (les administrateurs sont prévenus)'),
+      el('p', { class: 'note-bloc gris' }, 'À ne faire qu\'une fois : un second import créerait les séances en double.'),
+      el('div', { class: 'boutons' }, el('button', { type: 'button', class: 'bouton principal', disabled: I.enCours, onclick: () => lancerImport(forcer.checked) }, I.enCours ? 'Import en cours…' : 'Importer les ' + L.length + ' séances')));
+  }
+  async function lancerImport(forcer) {
+    const L = I.fichier.lignes;
+    const manque = [...new Set(L.map((l) => l.poste))].filter((po) => !I.postes[po]);
+    if (manque.length) { dire('Choisis la tâche pour : ' + manque.join(', '), true); return; }
+    if (!confirm('Importer ' + L.length + ' séances ? À ne faire qu\'une fois.')) return;
+    I.enCours = true; dessinerAdmin();
+    try {
+      // Personnes sans fiche à créer d'abord
+      for (const [pr, v] of Object.entries(I.prenoms)) if (v === 'creer') {
+        const r = await API.appeler('personne_creer', { prenom: pr, nom: '', nature: 'externe' }); I.prenoms[pr] = String(r.personne_id);
+      }
+      const lignes = L.map((l) => {
+        const pid = l.prenom ? I.prenoms[l.prenom] : '';
+        const titre = [l.note, l.prenom && !pid ? l.prenom : ''].filter(Boolean).join(' · ');
+        return { tache_id: +I.postes[l.poste], date: l.date, debut: l.debut, fin: l.fin, titre, personnes: pid ? [+pid] : [] };
+      });
+      const r = await API.appeler('import_seances', { source: I.fichier.source, lignes, forcer, motif: 'Import agenda Google' });
+      dire(r.seances_creees + ' séances importées.'); I.fichier = null;
+    } catch (e) {
+      if (e.message.startsWith('REGLES|')) dire('Import annulé : des règles de durée ne sont pas respectées. Coche la case pour importer quand même.', true);
+      else dire(e.message, true);
+    }
+    I.enCours = false; await rechargerAdmin(); chargerSemaine(); rafraichirAlertes();
+  }
+
   const AIDES = {
     referentiel: 'Un nom se modifie en cliquant dessus (Entrée pour valider). Ce qui a servi s\'archive au lieu de se supprimer : l\'historique reste intact. Changer la société d\'un atelier ne touche que les séances créées ensuite.',
     responsables: 'Un responsable crée et modifie les séances de ses ateliers, avec son propre lien de Suivi des temps.',
     personnes: 'Quand la fiche d\'une personne à venir est créée dans Suivi des temps, rattache-la ici : toutes ses séances passent sur sa fiche.',
+    import: 'Importer un agenda extérieur (par exemple Google) à partir du fichier préparé : chaque poste devient une tâche, chaque prénom une personne. Une séance par ligne, comme dans l\'agenda d\'origine.',
     alertes: 'Les plannings enregistrés malgré les règles de durée (pause au bout de 6 h, 10 h par jour), avec qui a forcé et pourquoi. Les nouvelles sont surlignées ; elles sont marquées comme vues à l\'ouverture de cette rubrique.',
     acces: 'Chaque collaborateur ou responsable voit toujours ses propres séances, plus les ateliers dont il est habituel ou responsable. Ouvre-lui ici d\'autres activités, ateliers, tâches ou regroupements, ou tout le planning. Accès complets et consultation voient tout.',
     habituels: 'Les ateliers habituels d\'une personne la font apparaître dans le volet « Personnes » quand ces ateliers sont sélectionnés. Ce n\'est pas une restriction.',
@@ -1204,7 +1286,7 @@
     $('#a-recherche').hidden = !['personnes', 'habituels', 'acces'].includes(A.rubrique);
     const z = $('#a-contenu'); z.replaceChildren();
     if (!A.donnees) { z.append(el('p', { class: 'vide' }, 'Chargement…')); rechargerAdmin(); return; }
-    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels, acces: adminAcces, alertes: adminAlertes })[A.rubrique](z);
+    ({ referentiel: adminReferentiel, responsables: adminResponsables, personnes: adminPersonnes, habituels: adminHabituels, acces: adminAcces, alertes: adminAlertes, import: adminImport })[A.rubrique](z);
   }
 
   // Personne sans fiche : création (volet ou administration) et renommage.

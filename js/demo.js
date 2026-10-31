@@ -180,6 +180,9 @@
   const seance = (id) => { const s = S.find((x) => x.id === +id); if (!s) throw new Error('Séance introuvable'); return s; };
 
   const actions = {
+    import_seances: (q) => { if (droits.niveau !== 'complet') throw new Error('Réservé aux accès complets');
+      q.lignes.forEach((l) => nouvelleSeance({ tache_id: +l.tache_id, date_seance: l.date, heure_debut: h(l.debut), heure_fin: h(l.fin), titre: l.titre || null, personnes: (l.personnes || []).map(Number) }));
+      return { seances_creees: q.lignes.length }; },
     alertes_lire: () => ({ alertes: alertes.slice() }),
     alertes_vues: () => { alertes.forEach((a) => { a.vue = true; }); return {}; },
     session: () => {

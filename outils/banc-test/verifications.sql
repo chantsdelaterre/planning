@@ -757,3 +757,23 @@ begin
   delete from planning.alerte; delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
 end $$;
 select 'Vérification 25 : réussie';
+
+-- 26. Import en lot : une séance par ligne (accès complet seulement).
+do $$
+declare adm jsonb := '{"type":"admin","admin_id":"admin_test1"}'; t bigint; anna bigint; j date := current_date + 20; r jsonb;
+begin
+  insert into planning.acces_admin values ('admin_test1', 'complet');
+  select t2.id into t from planning.tache t2 join planning.atelier a on a.id = t2.atelier_id where a.societe = 'SAS' limit 1;
+  select personne_id into anna from public.collaborateurs where collab_id = 'T001';
+  set local role service_role;
+  r := public.planning_appel(adm, 'import_seances', jsonb_build_object('source', 'essai', 'lignes', jsonb_build_array(
+    jsonb_build_object('tache_id', t, 'date', j, 'debut', '07:00', 'fin', '12:00', 'personnes', jsonb_build_array(anna)),
+    jsonb_build_object('tache_id', t, 'date', j, 'debut', '07:00', 'fin', '12:00', 'titre', 'à pourvoir'),
+    jsonb_build_object('tache_id', t, 'date', j + 1, 'debut', '18:00', 'fin', '19:00', 'titre', 'à vérifier', 'personnes', jsonb_build_array(anna)))));
+  if (r->>'seances_creees')::int <> 3 or (select count(*) from planning.seance where date_seance between j and j + 1) <> 3 then raise exception 'ÉCHEC : import'; end if;
+  begin perform public.planning_appel(jsonb_build_object('type', 'collab', 'personne_id', anna), 'import_seances', '{"lignes":[]}'); raise exception 'ÉCHEC : import par un collaborateur';
+  exception when raise_exception then if sqlerrm like 'ÉCHEC%' then raise; end if; end;
+  reset role;
+  delete from planning.seance; delete from planning.journal; delete from planning.acces_admin;
+end $$;
+select 'Vérification 26 : réussie';
