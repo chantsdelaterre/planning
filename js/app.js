@@ -166,7 +166,7 @@
   // Chargement -----------------------------------------------------------------------------
   async function demarrer() {
     if (!API || !API.aUnJeton()) {
-      dire('Ouvre le planning depuis ton lien personnel (bouton « Mon planning » de Suivi des temps) ou depuis l\'administration.', true);
+      dire('Ouvre l\'emploi du temps depuis ton lien personnel ou depuis l\'administration.', true);
       return;
     }
     if (API.demo) $('#bandeau-demo').hidden = false;
@@ -1135,9 +1135,9 @@
       try { await navigator.clipboard.writeText(url); dire('Lien copié.'); } catch (e) { $('#fl-url').select(); document.execCommand('copy'); dire('Lien copié.'); }
     };
     $('#fl-mail').onclick = () => {
-      const sujet = 'Ton accès au planning';
-      const corps = 'Bonjour ' + p.prenom + ',\n\nVoici ton lien personnel vers le planning de travail :\n' + url +
-        '\n\nOuvre-le une première fois sur ton ordinateur : ensuite, l\'adresse du planning suffit sur ce poste.\nCe lien est personnel, ne le transmets pas.\n';
+      const sujet = 'Ton accès à l\'emploi du temps';
+      const corps = 'Bonjour ' + p.prenom + ',\n\nVoici ton lien personnel vers l\'emploi du temps des Chants de la Terre :\n' + url +
+        '\n\nOuvre-le une première fois sur ton ordinateur : ensuite, l\'adresse de l\'emploi du temps suffit sur ce poste.\nCe lien est personnel, ne le transmets pas.\n';
       location.href = 'mailto:?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
     };
     $('#dlg-lien').showModal();
