@@ -393,3 +393,5 @@ tr.alerte-neuve td { background: #FFF7F5; }
 @media print { .equipe { min-width: 0; } .puce-jour:not(.actif), .equipe-tete .segments { display: none; } }
 
 .ref-ligne input[type=color], td input[type=color] { width: 30px; height: 30px; padding: 1px; border: 1px solid #C9CEC6; border-radius: 6px; background: var(--carte); flex: none; }
+
+.marque-serie { display: inline-block; margin-right: 4px; font-weight: 700; font-size: 1.05em; line-height: 1; }

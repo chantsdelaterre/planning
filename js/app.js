@@ -37,6 +37,8 @@
   const heures = (x) => { const q = Math.round(x * 4) * 15; const hh = Math.floor(q / 60), mm = q % 60; return hh + ' h' + (mm ? ' ' + String(mm).padStart(2, '0') : ''); };
   const nomP = (p) => p.prenom + (p.nom ? ' ' + p.nom.charAt(0) + '.' : '');
   const nomSeance = (s) => s.tache + (s.complement ? ' · ' + s.complement : '');
+  // Marque des séances d'une série (les ponctuelles n'en ont pas).
+  const marqueSerie = (s) => s.serie_id ? el('span', { class: 'marque-serie', title: 'Séance d\'une série' + (s.serie_intervalle > 1 ? ' (toutes les ' + s.serie_intervalle + ' semaines)' : ' (chaque semaine)'), 'aria-label': 'série' }, '↻') : null;
   // Une couleur fixe par personne (la même dans tous les ateliers), choisie dans une palette contrastée.
   // Teintes réparties par l'angle d'or : stables par personne, bien distinctes d'une personne à la suivante.
   const PALETTE = ['#C62828', '#1565C0', '#2E7D32', '#EF6C00', '#6A1B9A', '#00838F', '#AD1457', '#827717', '#4527A0', '#8D6E63',
@@ -412,7 +414,7 @@
       'data-seance': s.id,
       onclick: () => { etat.choisie = s.id; dessiner(); if (modifiable) ouvrirSeance(s); },
     },
-      el('span', { class: 't' }, nomSeance(s)),
+      el('span', { class: 't' }, marqueSerie(s), nomSeance(s)),
       el('span', { class: 'h' }, court5(s.heure_debut) + '–' + court5(s.heure_fin)),
       h >= 64 ? el('span', { class: 'p' }, ...(parPersonne()
         ? [s.personnes.map(nomP).join(', ') || 'à pourvoir']
@@ -596,7 +598,7 @@
           piste.append(el('button', { type: 'button', class: 'eq-barre' + (s.statut !== 'prevue' ? ' suspendue' : '') + (conflit ? ' alerte' : '') + (etat.choisie === s.id ? ' choisie' : ''),
             style: `left:${pos(s.heure_debut)}%;width:calc(${pos(s.heure_fin) - pos(s.heure_debut)}% - 3px);background:${etat.couleurs === 'personne' ? couleurPersonne(x.personne_id) : couleurTache(s.tache_id)}`,
             title: nomSeance(s) + ' · ' + court5(s.heure_debut) + '–' + court5(s.heure_fin) + ' · ' + s.atelier, onclick: () => ouvrir(s) },
-            el('b', {}, nomSeance(s)), el('span', {}, court5(s.heure_debut) + '–' + court5(s.heure_fin))));
+            el('b', {}, marqueSerie(s), nomSeance(s)), el('span', {}, court5(s.heure_debut) + '–' + court5(s.heure_fin))));
         }
         tb.append(el('div', { class: 'eq-ligne' + (alertes.length ? ' en-alerte' : '') },
           el('div', { class: 'eq-nom' }, el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom),
@@ -628,7 +630,7 @@
           totS += prevues.reduce((a, s) => a + s.duree_h, 0);
           return el('div', { class: 'eq-cellule' + (al.length ? ' en-alerte' : ''), title: al.join(' · ') },
             ...siennes.map((s) => el('button', { type: 'button', class: 'eq-etiquette' + (s.statut !== 'prevue' ? ' suspendue' : '') + (etat.choisie === s.id ? ' choisie' : ''), style: 'background:' + (etat.couleurs === 'personne' ? couleurPersonne(x.personne_id) : couleurTache(s.tache_id)), onclick: () => ouvrir(s), title: nomSeance(s) + ' · ' + s.atelier },
-              el('b', {}, nomSeance(s)), ' ' + court5(s.heure_debut).replace(':00', 'h') + '–' + court5(s.heure_fin).replace(':00', 'h'))));
+              el('b', {}, marqueSerie(s), nomSeance(s)), ' ' + court5(s.heure_debut).replace(':00', 'h') + '–' + court5(s.heure_fin).replace(':00', 'h'))));
         });
         tb.append(el('div', { class: 'eq-ligne' + (alerteS ? ' en-alerte' : '') },
           el('div', { class: 'eq-nom' }, el('button', { type: 'button', class: 'nom', onclick: () => changerVue('personne', x.personne_id) }, x.prenom + ' ' + x.nom), el('div', { class: 'sous' }, sousTitre(x.personne_id))),
@@ -660,7 +662,7 @@
         if (compte) tDuree += s.duree_h; tMo += s.main_oeuvre_h;
         tb.append(el('tr', { class: 'ligne' + (compte ? '' : ' suspendue') + (etat.choisie === s.id ? ' choisie' : ''), onclick: () => { etat.choisie = s.id; dessiner(); if (peutAtelier(s.atelier_id)) ouvrirSeance(s); } },
           el('td', { class: 'mono' }, court5(s.heure_debut) + '–' + court5(s.heure_fin)),
-          el('td', {}, el('span', { class: 'tache-nom' }, el('span', { class: 'pastille', style: 'background:' + s.couleur }), nomSeance(s)),
+          el('td', {}, el('span', { class: 'tache-nom' }, el('span', { class: 'pastille', style: 'background:' + s.couleur }), marqueSerie(s), nomSeance(s)),
             compte ? null : el('div', { class: 'sous' }, s.motif || 'Suspendue', ' · non comptée'),
             s.lieu ? el('div', { class: 'sous' }, s.lieu) : null),
           el('td', {}, s.personnes.map((p) => p.prenom + ' ' + p.nom + (p.mad ? ' (MàD)' : '')).join(', ') || el('span', { class: 'sous' }, 'personne')),
@@ -1390,6 +1392,7 @@
       el('div', { class: 'carte-entete' }, el('span', { class: 'sous' }, 'Séance'), el('button', { class: 'lien', onclick: () => { etat.choisie = null; dessiner(); } }, 'Fermer')),
       el('span', { class: 'puce', style: `background:${teinte(s.couleur, 0.16)};border-color:${s.couleur}` }, s.atelier + (s.regroupement ? ' › ' + s.regroupement : '')),
       el('h3', { class: 'detail-titre' }, nomSeance(s)),
+      s.serie_id ? el('div', { class: 'sous' }, '↻ Séance d\'une série' + (s.serie_intervalle > 1 ? ', toutes les ' + s.serie_intervalle + ' semaines' : ', chaque semaine')) : el('div', { class: 'sous' }, 'Séance ponctuelle'),
       el('div', { class: 'sous' }, D.long(s.date_seance) + ' · ', el('span', { class: 'mono' }, court5(s.heure_debut) + ' – ' + court5(s.heure_fin)), s.lieu ? ' · ' + s.lieu : ''),
       el('div', { class: 'chiffres' },
         el('div', { class: 'chiffre' }, el('div', { class: 'sous' }, 'Durée'), el('div', { class: 'v' }, heures(duree))),
